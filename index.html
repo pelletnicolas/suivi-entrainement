@@ -83,6 +83,10 @@ td button{padding:1px 8px}
       <input name="commentaire" placeholder="Commentaire">
       <button id="ok">Ajouter</button><button type="button" id="del" hidden>Supprimer</button><button type="button" id="cancel" hidden>Annuler</button>
     </form>
+    <div class="bar" style="margin-top:12px">
+      <label class="cm">Importer un export Strava (activities.csv), séances à partir du <input type="date" id="since" value="2026-01-01"></label>
+      <input type="file" id="csv" accept=".csv,text/csv" aria-label="Fichier activities.csv">
+    </div>
     <p class="cm" id="pend" style="margin:12px 0 4px"></p>
     <div class="bar">
       <button id="gh">Enregistrer dans GitHub</button>
@@ -268,6 +272,50 @@ $("gh").onclick = async () => {
     if(!put.ok) throw new Error(put.status===403||put.status===404 ? "le jeton n'a pas le droit d'écriture" : put.status===409 ? "le fichier a changé entre-temps, réessayez" : "erreur "+put.status);
     BASE = all; save(EMPTY()); say(`${n} modification${n>1?"s":""} enregistrée${n>1?"s":""} dans ${c.repo}.`); render();
   } catch(err) { say("Échec : "+err.message+". Vos modifications restent en attente."); }
+};
+// ---- Import d'un export Strava (activities.csv) ----
+const parseCSV = (txt,sep) => { const rows = []; let r = [], f = "", q = false;
+  for(let i=0;i<txt.length;i++){ const c = txt[i];
+    if(q){ if(c==='"'){ if(txt[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=c; }
+    else if(c==='"') q = true;
+    else if(c===sep){ r.push(f); f=""; }
+    else if(c==="\n"||c==="\r"){ if(c==="\r"&&txt[i+1]==="\n") i++; r.push(f); f=""; rows.push(r); r=[]; }
+    else f+=c; }
+  if(f||r.length){ r.push(f); rows.push(r); } return rows.filter(x=>x.join("").trim()); };
+const TYPES = [["trail run","trail"],["mountain bike","vtt"],["run","course route"],["ride","velo route"],["swim","natation"],["weight","renfo"],["workout","renfo"],["crossfit","renfo"],["backcountry","ski rando"],["ski","ski rando"],["hike","randonnée"],["walk","randonnée"]];
+const MON = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+const stravaDate = s => { let d = null, m;
+  if(m = s.match(/([A-Za-z]{3})\w*\.? (\d+), (\d{4}),? (\d+):(\d+)(?::(\d+))? ?(AM|PM)?/i)){ let h = m[7] ? +m[4]%12 + (/pm/i.test(m[7])?12:0) : +m[4]; d = new Date(Date.UTC(+m[3],MON.indexOf(m[1].toLowerCase()),+m[2],h,+m[5],+(m[6]||0))); }
+  else if(m = s.match(/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/)) d = new Date(Date.UTC(+m[1],m[2]-1,+m[3],+m[4],+m[5]));
+  else if(m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})[ ,]+(\d+):(\d+)/)) d = new Date(Date.UTC(+m[3],m[2]-1,+m[1],+m[4],+m[5]));
+  return d && !isNaN(d) ? d.toLocaleDateString("sv-SE") : null; };
+const num = x => parseFloat(String(x||"").replace(",",".")) || 0;
+const kmo = o => o.sport==="natation" ? (o.distance||0)/1000 : (o.distance||0);
+$("csv").onchange = async e => {
+  const file = e.target.files[0]; if(!file) return;
+  const txt = (await file.text()).replace(/^\uFEFF/,""), first = txt.split("\n")[0];
+  const rows = parseCSV(txt, first.split(";").length > first.split(",").length ? ";" : ","), H = (rows[0]||[]).map(h=>h.trim().toLowerCase());
+  const idx = ns => H.reduce((a,h,i)=>ns.includes(h)?a.concat(i):a,[]), last = a => a[a.length-1];
+  const iD = idx(["activity date","date de l'activité","date"])[0], iT = idx(["activity type","type d'activité","type"])[0], iN = idx(["activity name","nom de l'activité","nom"])[0];
+  const iM = last(idx(["moving time","temps de déplacement","durée de déplacement"])) ?? last(idx(["elapsed time","temps écoulé"]));
+  const dI = idx(["distance"]), iK = last(dI), iE = last(idx(["elevation gain","dénivelé positif","gain d'altitude"]));
+  if(iD===undefined || iT===undefined || iM===undefined || iK===undefined){ e.target.value = ""; return say("Colonnes non reconnues dans ce fichier. Vérifiez qu'il s'agit bien de activities.csv (export Strava)."); }
+  const since = $("since").value || "0000-00-00", p = load(), pool = apply(BASE,p).slice(), unknown = new Set();
+  let added = 0, dup = 0, n = 0;
+  for(const r of rows.slice(1)){
+    const date = stravaDate(r[iD]||""); if(!date || date < since) continue;
+    const ty = (r[iT]||"").toLowerCase(), hit = TYPES.find(x=>ty.includes(x[0]));
+    if(!hit){ unknown.add(r[iT]); continue; }
+    const sport = hit[1], sec = Math.round(num(r[iM])), metres = dI.length>1 ? num(r[iK]) : num(r[iK])*1000;
+    const o = {id:"i"+Date.now().toString(36)+(n++), date, sport, duree:`${Math.floor(sec/3600)}:${String(Math.floor(sec%3600/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`,
+      distance: Math.round((sport==="natation" ? metres : metres/1000)*100)/100, dplus: Math.round(num(r[iE])), seance: (r[iN]||"").trim(), commentaire:"", lieu:""};
+    const k = pool.findIndex(x=>x.date===date && x.sport===sport && (Math.abs(kmo(x)-kmo(o))<=0.2 || Math.abs(parseDur(x.duree)-sec)<=120));
+    if(k>=0){ pool.splice(k,1); dup++; continue; }
+    p.up[o.id] = o; added++;
+  }
+  save(p); e.target.value = "";
+  say(`${added} nouvelle${added>1?"s":""} séance${added>1?"s":""} importée${added>1?"s":""}, ${dup} déjà présente${dup>1?"s":""}.` + (unknown.size ? ` Types ignorés : ${[...unknown].join(", ")}.` : "") + (added ? " Vérifiez-les (✎) puis enregistrez." : ""));
+  render();
 };
 fetch("seances.json",{cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject()).then(j=>{BASE=j;render();})
   .catch(()=>{render();$("sub").textContent="Impossible de charger seances.json. Ouvrez la page via GitHub Pages ou un serveur local (python3 -m http.server).";});
