@@ -36,6 +36,8 @@ form{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8
 details summary{cursor:pointer;font:600 18px Georgia,serif}
 .rec li{margin:4px 0}
 details details{margin-top:8px}
+[hidden]{display:none!important}
+td button{padding:1px 8px}
 </style>
 </head>
 <body>
@@ -67,8 +69,9 @@ details details{margin-top:8px}
 </div>
 
 <div class="card">
-  <details>
-    <summary>Ajouter une séance</summary>
+  <details id="addbox">
+    <summary>Ajouter ou modifier une séance</summary>
+    <p class="cm" id="mode" style="margin:12px 0 0" hidden></p>
     <form id="add" style="margin-top:12px">
       <input type="date" name="date" required aria-label="Date">
       <select name="sport" aria-label="Sport"></select>
@@ -78,13 +81,13 @@ details details{margin-top:8px}
       <input name="seance" placeholder="Séance">
       <input name="lieu" placeholder="Lieu">
       <input name="commentaire" placeholder="Commentaire">
-      <button>Ajouter</button>
+      <button id="ok">Ajouter</button><button type="button" id="del" hidden>Supprimer</button><button type="button" id="cancel" hidden>Annuler</button>
     </form>
     <p class="cm" id="pend" style="margin:12px 0 4px"></p>
     <div class="bar">
       <button id="gh">Enregistrer dans GitHub</button>
       <button id="exp">Télécharger seances.json</button>
-      <button id="reset">Vider les ajouts en attente</button>
+      <button id="reset">Annuler les modifications en attente</button>
     </div>
     <p class="cm" id="msg" role="status"></p>
     <details>
@@ -106,12 +109,13 @@ details details{margin-top:8px}
 let BASE = [];
 const SPORTS = {"course route":["Course route","--c-route"],"trail":["Trail","--c-trail"],"velo route":["Vélo route","--c-velo"],"vtt":["VTT","--c-vtt"],"natation":["Natation","--c-nat"],"renfo":["Renfo","--c-renfo"],"ski rando":["Ski rando","--c-autre"],"randonnée":["Randonnée","--c-autre"]};
 const MONTHS = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
-const KEY = "suivi-2026-ajouts";
-const $ = id => document.getElementById(id);
-const col = s => `var(${(SPORTS[s]||["","--c-autre"])[1]})`;
-const name = s => (SPORTS[s]||[s])[0];
-const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } };
-const save = a => { try { localStorage.setItem(KEY, JSON.stringify(a)); } catch {} };
+const KEY = "suivi-2026-modifs";
+const hash = o => { let h = 5381; for(const c of [o.date,o.sport,o.duree,o.distance,o.seance,o.lieu].join("|")) h = (h*33 ^ c.charCodeAt(0)) >>> 0; return "h"+h.toString(36); };
+const idOf = o => o.id || hash(o), withId = o => ({id:idOf(o),...o});
+const EMPTY = () => ({up:{},del:[]});
+const load = () => { try { const p = JSON.parse(localStorage.getItem(KEY)); return {up:p.up||{},del:p.del||[]}; } catch { return EMPTY(); } };
+const save = p => { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch {} };
+const apply = (base,p) => { const ids = new Set(base.map(idOf)); return base.filter(o=>!p.del.includes(idOf(o))).map(o=>p.up[idOf(o)]||o).concat(Object.values(p.up).filter(o=>!ids.has(o.id))); };
 const parseDur = d => { const p = String(d).split(":").map(Number); return p.length===3 ? p[0]*3600+p[1]*60+p[2] : p[0]*60+(p[1]||0); };
 const toObj = o => ({date:o.date,sport:o.sport,sec:parseDur(o.duree),dist:o.distance||0,dplus:o.dplus||0,title:o.seance||"",comment:o.commentaire||"",place:o.lieu||"",m:+o.date.slice(5,7)-1});
 let data = [], sort = {k:"date",d:-1}, metric = "h";
@@ -130,8 +134,9 @@ const fdate = d => new Date(d+"T12:00").toLocaleDateString("fr-FR",{day:"numeric
 const sum = (a,f) => a.reduce((t,x)=>t+f(x),0);
 
 function render(){
-  const pend = load(); data = BASE.map(toObj).concat(pend.map(o=>({...toObj(o),pending:true})));
-  $("pend").textContent = pend.length ? `${pend.length} séance${pend.length>1?"s":""} en attente d'enregistrement` : "Aucune séance en attente";
+  const p = load(), ch = new Set(Object.keys(p.up)), n = ch.size + p.del.length;
+  data = apply(BASE,p).map(o=>({...toObj(o),id:idOf(o),pending:ch.has(idOf(o))}));
+  $("pend").textContent = n ? `${n} modification${n>1?"s":""} en attente d'enregistrement` : "Aucune modification en attente";
   const done = data.filter(s=>s.sport!=="renfo");
   $("sub").textContent = `${data.length} séances enregistrées · ${new Set(data.map(s=>s.date)).size} jours actifs`;
   $("kpis").innerHTML = [
@@ -196,8 +201,9 @@ function table(){
   a.sort((x,y)=>(f(x)>f(y)?1:f(x)<f(y)?-1:0)*sort.d);
   $("count").textContent = `${a.length} séance${a.length>1?"s":""} · ${hms(sum(a,s=>s.sec))} · ${Math.round(sum(a,s=>s.sport==="natation"?0:s.dist||0))} km`;
   const th = (k,l,n)=>`<th class="${n?"n":""}" data-k="${k}" tabindex="0">${l}${sort.k===k?(sort.d>0?" ▲":" ▼"):""}</th>`;
-  $("tbl").innerHTML = `<tr>${th("date","Date")}${th("sport","Sport")}${th("sec","Durée",1)}${th("dist","Distance",1)}${th("dplus","D+",1)}<th class="n">Allure</th><th>Séance</th><th>Lieu</th></tr>`+
-    a.map(s=>`<tr><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${esc(s.title)}${s.pending?'<b class="cm"> • en attente</b>':""}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td></tr>`).join("");
+  $("tbl").innerHTML = `<tr>${th("date","Date")}${th("sport","Sport")}${th("sec","Durée",1)}${th("dist","Distance",1)}${th("dplus","D+",1)}<th class="n">Allure</th><th>Séance</th><th>Lieu</th><th></th></tr>`+
+    a.map(s=>`<tr><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${esc(s.title)}${s.pending?'<b class="cm"> • en attente</b>':""}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td><td><button data-e="${s.id}" aria-label="Modifier cette séance">✎</button></td></tr>`).join("");
+  document.querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>edit(b.dataset.e));
   document.querySelectorAll("th[data-k]").forEach(h=>{const go=()=>{sort={k:h.dataset.k,d:sort.k===h.dataset.k?-sort.d:-1};table();};h.onclick=go;h.onkeydown=e=>e.key==="Enter"&&go();});
 }
 const esc = t => String(t||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -220,31 +226,48 @@ form.elements.date.value = new Date().toISOString().slice(0,10);
 const c0 = cfg(); Object.keys(c0).forEach(k => { const el = $("cfg").elements[k]; if(el) el.value = c0[k]; });
 $("cfg").oninput = () => { try { localStorage.setItem(CFG, JSON.stringify(Object.fromEntries(new FormData($("cfg"))))); } catch {} };
 
+let editing = null;
+const setMode = id => { editing = id; $("mode").hidden = !id; $("ok").textContent = id ? "Mettre à jour" : "Ajouter"; $("del").hidden = $("cancel").hidden = !id; };
+const resetForm = d => { form.reset(); form.elements.date.value = d || new Date().toISOString().slice(0,10); sportSel.onchange(); setMode(null); };
+function edit(id){
+  const s = apply(BASE,load()).find(o=>idOf(o)===id); if(!s) return;
+  const f = form.elements; f.date.value = s.date; f.sport.value = s.sport; f.duree.value = s.duree; f.distance.value = s.distance||""; f.dplus.value = s.dplus||"";
+  f.seance.value = s.seance||""; f.lieu.value = s.lieu||""; f.commentaire.value = s.commentaire||"";
+  sportSel.onchange(); setMode(id); $("mode").textContent = `Modification de la séance du ${fdate(s.date)}`;
+  $("addbox").open = true; $("addbox").scrollIntoView({behavior:"smooth"});
+}
+$("cancel").onclick = () => resetForm();
 form.onsubmit = e => {
-  e.preventDefault(); const f = Object.fromEntries(new FormData(form));
-  const o = {date:f.date,sport:f.sport,duree:f.duree,distance:+f.distance||0,dplus:+f.dplus||0,seance:f.seance.trim(),commentaire:f.commentaire.trim(),lieu:f.lieu.trim()};
-  save(load().concat([o])); form.reset(); form.elements.date.value = o.date; say("Séance ajoutée. Enregistrez-la dans GitHub ou téléchargez le fichier."); render();
+  e.preventDefault(); const f = Object.fromEntries(new FormData(form)), p = load();
+  const id = editing || Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+  p.up[id] = {id,date:f.date,sport:f.sport,duree:f.duree,distance:+f.distance||0,dplus:+f.dplus||0,seance:f.seance.trim(),commentaire:f.commentaire.trim(),lieu:f.lieu.trim()};
+  save(p); say(editing ? "Séance modifiée (en attente d'enregistrement)." : "Séance ajoutée (en attente d'enregistrement)."); resetForm(f.date); render();
+};
+$("del").onclick = () => {
+  if(!editing || !confirm("Supprimer cette séance ?")) return;
+  const p = load(); delete p.up[editing]; if(BASE.some(o=>idOf(o)===editing)) p.del.push(editing);
+  save(p); say("Séance supprimée (en attente d'enregistrement)."); resetForm(); render();
 };
 $("exp").onclick = () => {
-  const l = document.createElement("a"); l.href = URL.createObjectURL(new Blob([toJson(byDate(BASE.concat(load())))],{type:"application/json"}));
+  const l = document.createElement("a"); l.href = URL.createObjectURL(new Blob([toJson(byDate(apply(BASE,load()).map(withId)))],{type:"application/json"}));
   l.download = "seances.json"; l.click();
 };
-$("reset").onclick = () => { if(confirm("Supprimer les séances en attente ?")){ save([]); say(""); render(); } };
+$("reset").onclick = () => { if(confirm("Annuler toutes les modifications en attente ?")){ save(EMPTY()); say(""); resetForm(); render(); } };
 $("gh").onclick = async () => {
-  const c = cfg(), pend = load();
+  const c = cfg(), p = load(), n = Object.keys(p.up).length + p.del.length;
   if(!c.repo || !c.token) return say("Renseignez le dépôt et le jeton dans « Connexion GitHub ».");
-  if(!pend.length) return say("Aucune séance en attente.");
+  if(!n) return say("Aucune modification en attente.");
   const url = `https://api.github.com/repos/${c.repo}/contents/${c.path||"seances.json"}`, br = c.branch||"main";
   const h = {Authorization:`Bearer ${c.token}`,Accept:"application/vnd.github+json"};
   say("Enregistrement en cours…");
   try {
     const cur = await fetch(`${url}?ref=${encodeURIComponent(br)}`,{headers:h});
     if(!cur.ok) throw new Error(cur.status===404 ? "dépôt, branche ou fichier introuvable" : cur.status===401 ? "jeton refusé" : "erreur "+cur.status);
-    const j = await cur.json(), all = byDate(JSON.parse(unb64(j.content)).concat(pend));
-    const put = await fetch(url,{method:"PUT",headers:h,body:JSON.stringify({message:`Ajout de ${pend.length} séance${pend.length>1?"s":""}`,content:b64(toJson(all)),sha:j.sha,branch:br})});
-    if(!put.ok) throw new Error(put.status===403||put.status===404 ? "le jeton n'a pas le droit d'écriture" : "erreur "+put.status);
-    BASE = all; save([]); say(`${pend.length} séance${pend.length>1?"s":""} enregistrée${pend.length>1?"s":""} dans ${c.repo}.`); render();
-  } catch(err) { say("Échec : "+err.message+". Vos séances restent en attente."); }
+    const j = await cur.json(), all = byDate(apply(JSON.parse(unb64(j.content)).map(withId),p).map(withId));
+    const put = await fetch(url,{method:"PUT",headers:h,body:JSON.stringify({message:`Mise à jour des séances (${n} modification${n>1?"s":""})`,content:b64(toJson(all)),sha:j.sha,branch:br})});
+    if(!put.ok) throw new Error(put.status===403||put.status===404 ? "le jeton n'a pas le droit d'écriture" : put.status===409 ? "le fichier a changé entre-temps, réessayez" : "erreur "+put.status);
+    BASE = all; save(EMPTY()); say(`${n} modification${n>1?"s":""} enregistrée${n>1?"s":""} dans ${c.repo}.`); render();
+  } catch(err) { say("Échec : "+err.message+". Vos modifications restent en attente."); }
 };
 fetch("seances.json",{cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject()).then(j=>{BASE=j;render();})
   .catch(()=>{render();$("sub").textContent="Impossible de charger seances.json. Ouvrez la page via GitHub Pages ou un serveur local (python3 -m http.server).";});
