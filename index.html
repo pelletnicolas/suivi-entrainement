@@ -47,6 +47,7 @@ td button{padding:1px 8px}td:last-child{white-space:nowrap}
 .flag{opacity:.3}.flag:hover,.flag.on{opacity:1}.flag.on{background:var(--ink);color:var(--bg)}
 .chk{display:flex;align-items:center;gap:6px;font-size:14px}.chk input{width:16px;height:16px;padding:0}
 tr.st td{font-weight:700;border-bottom:2px solid var(--line)}
+tr.yr td{font:700 17px Georgia,serif;padding-top:18px;border-bottom:2px solid var(--ink)}tr.yr small{font:400 13px "Avenir Next",Seravek,"Segoe UI",system-ui,sans-serif;color:var(--mute);margin-left:8px}
 td input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;cursor:pointer}button:disabled{opacity:.55;cursor:default;background:var(--card);color:inherit}
 .head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
 /* ---- Livre à imprimer : toujours sur fond blanc, quelle que soit l'apparence (claire ou sombre) de la page ---- */
@@ -82,14 +83,14 @@ body.bk{background:#e3e7e4}body.bk main{display:none}
 <p class="sub" id="sub"></p>
 <div class="kpis" id="kpis"></div>
 
-<div class="card">
+<div class="card" id="cChart">
   <h2 id="hChart">Volume par mois</h2>
   <div class="bar" id="metric"></div>
   <div class="wrap"><svg id="chart" width="100%" viewBox="0 0 720 240" role="img" aria-label="Volume par sport"></svg></div>
   <div class="bar" id="legend"></div>
 </div>
 
-<div class="grid2">
+<div class="grid2" id="cStats">
   <div class="card"><h2 id="hBil">Bilan par sport</h2><div class="wrap"><table id="bySport"></table></div></div>
   <div class="card"><h2 id="hRec">Faits marquants</h2><ul class="rec" id="rec"></ul></div>
 </div>
@@ -220,6 +221,8 @@ function render(){
   if(multi()) month = ""; else if(month===null) month = data.reduce((m,s)=>Math.max(m,s.m),-1);
   if(month===-1) month = "";
   years();
+  $("kpis").hidden = $("cChart").hidden = $("cStats").hidden = R; // l'onglet « Courses officielles » ne montre que la liste
+  if(R) hideTip();
   $("hChart").textContent = R ? "Courses officielles : volume par année" : year==="" ? "Volume par année" : `Volume par mois en ${year}`;
   $("hRec").textContent = R ? "Faits marquants en course" : year==="" ? "Faits marquants, toutes années" : `Faits marquants ${year}`;
   $("hList").textContent = R ? "Courses officielles" : year==="" ? "Séances, toutes années" : `Séances ${year}`;
@@ -332,14 +335,15 @@ function table(full){
   let a = data.filter(s=>(month===""||s.m===month)&&(!fs||s.sport===fs)&&(!q||[s.title,s.comment,s.place].join(" ").toLowerCase().includes(q)));
   const v = {date:s=>s.date,sport:s=>s.sport,sec:s=>s.sec,dist:s=>km(s),dplus:s=>s.dplus||0};
   const f = v[sort.k]||v.date;
-  a.sort((x,y)=>(f(x)>f(y)?1:f(x)<f(y)?-1:0)*sort.d);
+  const R = year==="races"; // courses : regroupées par année, la plus récente d'abord, puis triées dans chaque année
+  a.sort((x,y)=>(R && y.y-x.y) || (f(x)>f(y)?1:f(x)<f(y)?-1:0)*sort.d);
   $("count").textContent = `${a.length} séance${a.length>1?"s":""} · ${hms(sum(a,s=>s.sec))} · ${Math.round(sum(a,s=>s.sport==="natation"?0:s.dist||0))} km`;
   const th = (k,l,n)=>`<th class="${n?"n":""}" data-k="${k}" tabindex="0">${l}${sort.k===k?(sort.d>0?" ▲":" ▼"):""}</th>`;
   const shown = full===true ? a : a.slice(0,MAXROWS), ids = new Set(shown.map(s=>s.id));
   picked.forEach(id=>ids.has(id) || picked.delete(id)); // une séance qui n'est plus affichée n'est plus cochée
   $("tbl").innerHTML = `<tr><th></th>${th("date","Date")}${th("sport","Sport")}${th("sec","Durée",1)}${th("dist","Distance",1)}${th("dplus","D+",1)}<th class="n">Allure</th><th>Séance</th><th>Lieu</th><th></th></tr>`+
     (a.length ? "" : `<tr><td colspan="10" class="cm">${!all.length ? "Aucune séance pour l'instant : ajoutez-en une ci-dessous." : fs || q ? "Aucune séance ne correspond à ces filtres." : year==="races" ? "Aucune course officielle pour l'instant. Pour en marquer une, cliquez sur ⚑ dans la liste des séances, ou cochez « Course officielle » en la modifiant (✎)." : `Aucune séance en ${month==="" ? "" : MONTHS[month].toLowerCase()+" "}${year}.`}</td></tr>`)+
-    shown.map(s=>`<tr><td><input type="checkbox" data-s="${esc(s.id)}"${picked.has(s.id)?" checked":""} aria-label="Cocher cette séance pour la fusionner"></td><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${s.race?'<span class="badge">Course</span>':""}${esc(s.title)}${s.parts?`<span class="cm">${s.title?" · ":""}fusion de ${s.parts} séances</span>`:""}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td><td><button class="flag${s.race?" on":""}" data-r="${esc(s.id)}" aria-pressed="${s.race}" title="Course officielle" aria-label="Course officielle">⚑</button> <button data-e="${esc(s.id)}" aria-label="Modifier cette séance">✎</button></td></tr>`).join("")+
+    shown.map((s,i)=>(R && (!i || shown[i-1].y!==s.y) ? `<tr class="yr"><td colspan="10">${s.y}<small>${plur(a.filter(x=>x.y===s.y).length,"course","courses")}</small></td></tr>` : "")+`<tr><td><input type="checkbox" data-s="${esc(s.id)}"${picked.has(s.id)?" checked":""} aria-label="Cocher cette séance pour la fusionner"></td><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${s.race?'<span class="badge">Course</span>':""}${esc(s.title)}${s.parts?`<span class="cm">${s.title?" · ":""}fusion de ${s.parts} séances</span>`:""}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td><td><button class="flag${s.race?" on":""}" data-r="${esc(s.id)}" aria-pressed="${s.race}" title="Course officielle" aria-label="Course officielle">⚑</button> <button data-e="${esc(s.id)}" aria-label="Modifier cette séance">✎</button></td></tr>`).join("")+
     (full!==true && a.length>MAXROWS ? `<tr><td colspan="10"><button id="more">Afficher les ${a.length-MAXROWS} séances suivantes</button></td></tr>` : "");
   if($("more")) $("more").onclick = () => table(true);
   document.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>{ // marquer ou démarquer une course officielle
