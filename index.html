@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Suivi d'entraînement 2026</title>
+<title>Suivi d'entraînement</title>
 <style>
 :root{--bg:#eef1ee;--card:#fff;--ink:#1b2a2f;--mute:#5d6e72;--line:#d5dcd8;--c-route:#2b6f8f;--c-trail:#c4572b;--c-velo:#d9a21b;--c-vtt:#7a8f2e;--c-nat:#3fa7a0;--c-renfo:#7d5ba6;--c-autre:#8a8f91}
 @media(prefers-color-scheme:dark){:root{--bg:#121a1c;--card:#1a2427;--ink:#e6ecea;--mute:#93a5a8;--line:#2c3a3e}}
@@ -22,6 +22,8 @@ select,input,button{font:inherit;color:inherit;background:var(--card);border:1px
 button{cursor:pointer}button:hover,.chip.on{background:var(--ink);color:var(--bg)}
 :focus-visible{outline:2px solid var(--c-route);outline-offset:2px}
 .chip{border-radius:99px;padding:3px 12px;font-size:13px}
+.chip.big{padding:5px 14px;font-size:15px;font-weight:600}#years{margin:12px 0 10px}
+.chip small{margin-left:4px;opacity:.7;font-weight:400}.chip.off:not(.on){color:var(--mute);border-style:dashed}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
 .wrap{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-size:14px}
@@ -41,26 +43,28 @@ td button{padding:1px 8px}
 </head>
 <body>
 <main>
-<h1>Suivi d'entraînement 2026</h1>
+<h1>Suivi d'entraînement</h1>
+<div class="bar" id="years" role="tablist" aria-label="Année affichée"></div>
 <p class="sub" id="sub"></p>
 <div class="kpis" id="kpis"></div>
 
 <div class="card">
-  <h2>Volume par mois</h2>
+  <h2 id="hChart">Volume par mois</h2>
   <div class="bar" id="metric"></div>
-  <div class="wrap"><svg id="chart" width="100%" viewBox="0 0 720 240" role="img" aria-label="Volume mensuel par sport"></svg></div>
+  <div class="wrap"><svg id="chart" width="100%" viewBox="0 0 720 240" role="img" aria-label="Volume par sport"></svg></div>
   <div class="bar" id="legend"></div>
 </div>
 
 <div class="grid2">
   <div class="card"><h2>Bilan par sport</h2><div class="wrap"><table id="bySport"></table></div></div>
-  <div class="card"><h2>Faits marquants 2026</h2><ul class="rec" id="rec"></ul></div>
+  <div class="card"><h2 id="hRec">Faits marquants</h2><ul class="rec" id="rec"></ul></div>
 </div>
 
 <div class="card">
-  <h2>Séances</h2>
+  <h2 id="hList">Séances</h2>
+  <div class="bar" id="tabs" role="tablist" aria-label="Mois affiché"></div>
   <div class="bar">
-    <select id="fMonth"></select><select id="fSport"></select>
+    <select id="fSport"></select>
     <input id="fText" type="search" placeholder="Rechercher (séance, lieu…)" aria-label="Rechercher">
     <span class="cm" id="count"></span>
   </div>
@@ -95,6 +99,7 @@ td button{padding:1px 8px}
 <script>
 // Les séances sont enregistrées dans ce navigateur (localStorage). Distance en km, sauf natation en mètres.
 const SPORTS = {"course route":["Course route","--c-route"],"trail":["Trail","--c-trail"],"velo route":["Vélo route","--c-velo"],"vtt":["VTT","--c-vtt"],"natation":["Natation","--c-nat"],"renfo":["Renfo","--c-renfo"],"ski rando":["Ski rando","--c-autre"],"randonnée":["Randonnée","--c-autre"]};
+const MSHORT = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
 const MONTHS = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
 const KEY = "suivi-2026-seances", OLD = "suivi-2026-modifs";
 const $ = id => document.getElementById(id);
@@ -106,9 +111,11 @@ const load = () => { try {
   } catch { return []; } };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(seances)); return true; } catch { return false; } };
 const parseDur = d => { const p = String(d).split(":").map(Number); return p.length===3 ? p[0]*3600+p[1]*60+p[2] : p[0]*60+(p[1]||0); };
-const toObj = o => ({id:o.id,date:o.date,sport:o.sport,sec:parseDur(o.duree),dist:o.distance||0,dplus:o.dplus||0,title:o.seance||"",comment:o.commentaire||"",place:o.lieu||"",m:+o.date.slice(5,7)-1});
+const toObj = o => ({id:o.id,date:o.date,sport:o.sport,sec:parseDur(o.duree),dist:o.distance||0,dplus:o.dplus||0,title:o.seance||"",comment:o.commentaire||"",place:o.lieu||"",y:+o.date.slice(0,4),m:+o.date.slice(5,7)-1});
 let seances = load().map((o,i)=>o.id?o:{...o,id:"m"+i});
-let data = [], sort = {k:"date",d:-1}, metric = "h";
+let all = [], data = [], sort = {k:"date",d:-1}, metric = "h"; // all : toutes les séances ; data : celles de l'année affichée
+let year = null;  // onglet d'année : "" = toutes les années, sinon l'année, null = pas encore choisi (dernière année qui a des séances)
+let month = null; // sous-onglet : "" = toute l'année, 0 à 11 = un mois, null = pas encore choisi (dernier mois qui a des séances)
 
 const hms = s => { s=Math.round(s); return `${Math.floor(s/3600)}h${String(Math.floor(s%3600/60)).padStart(2,"0")}`; };
 const mmss = s => `${Math.floor(s/60)}'${String(Math.round(s%60)).padStart(2,"0")}`;
@@ -120,11 +127,26 @@ function pace(s){
   if(s.sport==="renfo") return "";
   return (s.dist/(s.sec/3600)).toFixed(1)+" km/h";
 }
-const fdate = d => new Date(d+"T12:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"});
+const DF = new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short"}), DFY = new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short",year:"numeric"});
+const fdate = d => (year==="" ? DFY : DF).format(new Date(d+"T12:00")); // avec l'année dans « Toutes les années »
 const sum = (a,f) => a.reduce((t,x)=>t+f(x),0);
 
+function years(){
+  const n = {}; all.forEach(s=>n[s.y]=(n[s.y]||0)+1);
+  const ys = [...new Set([...Object.keys(n).map(Number), ...(year==="" ? [] : [year])])].sort((a,b)=>a-b);
+  $("years").innerHTML = [["","Toutes les années",all.length], ...ys.map(y=>[y,y,n[y]||0])].map(([v,l,c])=>`<button class="chip big${year===v?" on":""}${c?"":" off"}" role="tab" aria-selected="${year===v}" data-y="${v}">${l}${c?`<small>${c}</small>`:""}</button>`).join("");
+  document.querySelectorAll("[data-y]").forEach(b=>b.onclick=()=>{ year = b.dataset.y==="" ? "" : +b.dataset.y; month = null; render(); document.querySelector(`[data-y="${year}"]`).focus(); });
+}
 function render(){
-  data = seances.map(toObj);
+  all = seances.map(toObj);
+  if(year===null) year = all.length ? all.reduce((m,s)=>Math.max(m,s.y),0) : new Date().getFullYear();
+  data = year==="" ? all : all.filter(s=>s.y===year);
+  if(year==="") month = ""; else if(month===null) month = data.reduce((m,s)=>Math.max(m,s.m),-1);
+  if(month===-1) month = "";
+  years();
+  $("hChart").textContent = year==="" ? "Volume par année" : `Volume par mois en ${year}`;
+  $("hRec").textContent = year==="" ? "Faits marquants, toutes années" : `Faits marquants ${year}`;
+  $("hList").textContent = year==="" ? "Séances, toutes années" : `Séances ${year}`;
   $("sub").textContent = `${data.length} séance${data.length>1?"s":""} enregistrée${data.length>1?"s":""} · ${(n=>`${n} jour${n>1?"s":""} actif${n>1?"s":""}`)(new Set(data.map(s=>s.date)).size)}`;
   $("kpis").innerHTML = [
     [hms(sum(data,s=>s.sec)),"d'entraînement"],
@@ -139,17 +161,20 @@ function chart(){
   $("metric").innerHTML = [["h","Heures"],["km","Kilomètres"],["d","D+ (m)"]].map(m=>`<button class="chip ${metric===m[0]?"on":""}" data-m="${m[0]}">${m[1]}</button>`).join("");
   const val = s => metric==="h"?s.sec/3600:metric==="km"?km(s):(s.dplus||0);
   const used = Object.keys(SPORTS).filter(k=>data.some(s=>s.sport===k&&val(s)>0));
-  const tot = MONTHS.map((_,i)=>sum(data.filter(s=>s.m===i),val));
-  const max = Math.max(1,...tot), W=720,H=240,b=26,t=14,bw=36,step=(W-40)/12;
+  const y0 = data.reduce((m,s)=>Math.min(m,s.y),9999), y1 = data.reduce((m,s)=>Math.max(m,s.y),0);
+  const B = year==="" ? Array.from({length:Math.max(0,y1-y0+1)},(_,i)=>({short:String(y0+i),long:String(y0+i),a:data.filter(s=>s.y===y0+i)}))
+                      : MONTHS.map((m,i)=>({short:MSHORT[i],long:m,a:data.filter(s=>s.m===i)}));
+  const tot = B.map(x=>sum(x.a,val));
+  const max = Math.max(1,...tot), W=720,H=240,b=26,t=14,step=(W-40)/Math.max(1,B.length),bw=Math.min(36,step*.7);
   let g = "";
-  MONTHS.forEach((mn,i)=>{
+  B.forEach(({short,long:mn,a},i)=>{
     let y = H-b; const x = 40+i*step+(step-bw)/2;
     used.forEach(k=>{
-      const v = sum(data.filter(s=>s.m===i&&s.sport===k),val), h = v/max*(H-b-t);
+      const v = sum(a.filter(s=>s.sport===k),val), h = v/max*(H-b-t);
       if(h>0){ y-=h; g+=`<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${col(k)}"><title>${mn} · ${name(k)} : ${v.toFixed(1)}</title></rect>`; }
     });
     if(tot[i]>0) g+=`<text x="${x+bw/2}" y="${y-4}" text-anchor="middle">${Math.round(tot[i]*(metric==="h"?10:1))/(metric==="h"?10:1)}</text>`;
-    g+=`<text x="${x+bw/2}" y="${H-8}" text-anchor="middle">${mn.slice(0,3)}</text>`;
+    g+=`<text x="${x+bw/2}" y="${H-8}" text-anchor="middle">${short}</text>`;
   });
   g+=`<line x1="36" x2="${W}" y1="${H-b}" y2="${H-b}" stroke="var(--line)"/>`;
   $("chart").innerHTML = g;
@@ -180,25 +205,34 @@ function records(){
   $("rec").innerHTML = out.join("");
 }
 
-function table(){
-  const fm=$("fMonth").value, fs=$("fSport").value, q=$("fText").value.toLowerCase();
-  let a = data.filter(s=>(fm===""||s.m==fm)&&(!fs||s.sport===fs)&&(!q||[s.title,s.comment,s.place].join(" ").toLowerCase().includes(q)));
+function tabs(){
+  $("tabs").hidden = year===""; // pas de sous-onglets dans « Toutes les années »
+  const list = [["","Toute l'année",data.length], ...MONTHS.map((m,i)=>[i,m,data.filter(s=>s.m===i).length])];
+  $("tabs").innerHTML = list.map(([v,l,n])=>`<button class="chip${month===v?" on":""}${n?"":" off"}" role="tab" aria-selected="${month===v}" data-mo="${v}">${l}${n?`<small>${n}</small>`:""}</button>`).join("");
+  document.querySelectorAll("[data-mo]").forEach(b=>b.onclick=()=>{ month = b.dataset.mo==="" ? "" : +b.dataset.mo; table(); document.querySelector(`[data-mo="${month}"]`).focus(); });
+}
+const MAXROWS = 300; // au-delà, la suite de la liste s'affiche à la demande pour garder la page fluide
+function table(full){
+  tabs();
+  const fs=$("fSport").value, q=$("fText").value.toLowerCase();
+  let a = data.filter(s=>(month===""||s.m===month)&&(!fs||s.sport===fs)&&(!q||[s.title,s.comment,s.place].join(" ").toLowerCase().includes(q)));
   const v = {date:s=>s.date,sport:s=>s.sport,sec:s=>s.sec,dist:s=>km(s),dplus:s=>s.dplus||0};
   const f = v[sort.k]||v.date;
   a.sort((x,y)=>(f(x)>f(y)?1:f(x)<f(y)?-1:0)*sort.d);
   $("count").textContent = `${a.length} séance${a.length>1?"s":""} · ${hms(sum(a,s=>s.sec))} · ${Math.round(sum(a,s=>s.sport==="natation"?0:s.dist||0))} km`;
   const th = (k,l,n)=>`<th class="${n?"n":""}" data-k="${k}" tabindex="0">${l}${sort.k===k?(sort.d>0?" ▲":" ▼"):""}</th>`;
   $("tbl").innerHTML = `<tr>${th("date","Date")}${th("sport","Sport")}${th("sec","Durée",1)}${th("dist","Distance",1)}${th("dplus","D+",1)}<th class="n">Allure</th><th>Séance</th><th>Lieu</th><th></th></tr>`+
-    (a.length ? "" : `<tr><td colspan="9" class="cm">${data.length ? "Aucune séance ne correspond à ces filtres." : "Aucune séance pour l'instant : ajoutez-en une ci-dessous."}</td></tr>`)+
-    a.map(s=>`<tr><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${esc(s.title)}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td><td><button data-e="${esc(s.id)}" aria-label="Modifier cette séance">✎</button></td></tr>`).join("");
+    (a.length ? "" : `<tr><td colspan="9" class="cm">${!all.length ? "Aucune séance pour l'instant : ajoutez-en une ci-dessous." : fs || q ? "Aucune séance ne correspond à ces filtres." : `Aucune séance en ${month==="" ? "" : MONTHS[month].toLowerCase()+" "}${year}.`}</td></tr>`)+
+    (full===true ? a : a.slice(0,MAXROWS)).map(s=>`<tr><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${esc(s.title)}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td><td><button data-e="${esc(s.id)}" aria-label="Modifier cette séance">✎</button></td></tr>`).join("")+
+    (full!==true && a.length>MAXROWS ? `<tr><td colspan="9"><button id="more">Afficher les ${a.length-MAXROWS} séances suivantes</button></td></tr>` : "");
+  if($("more")) $("more").onclick = () => table(true);
   document.querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>edit(b.dataset.e));
   document.querySelectorAll("th[data-k]").forEach(h=>{const go=()=>{sort={k:h.dataset.k,d:sort.k===h.dataset.k?-sort.d:-1};table();};h.onclick=go;h.onkeydown=e=>e.key==="Enter"&&go();});
 }
 const esc = t => String(t||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-$("fMonth").innerHTML = `<option value="">Tous les mois</option>`+MONTHS.map((m,i)=>`<option value="${i}">${m}</option>`).join("");
 $("fSport").innerHTML = `<option value="">Tous les sports</option>`+Object.keys(SPORTS).map(k=>`<option value="${k}">${name(k)}</option>`).join("");
-["fMonth","fSport"].forEach(i=>$(i).onchange=table); $("fText").oninput=table;
+$("fSport").onchange = table; $("fText").oninput = table;
 
 const say = m => $("msg").textContent = m;
 const NOSAVE = " Attention : ce navigateur bloque l'enregistrement local, les changements seront perdus à la fermeture de la page.";
@@ -224,7 +258,7 @@ form.onsubmit = e => {
   const o = {id,date:f.date,sport:f.sport,duree:f.duree,distance:+f.distance||0,dplus:+f.dplus||0,seance:f.seance.trim(),commentaire:f.commentaire.trim(),lieu:f.lieu.trim()};
   const i = seances.findIndex(x=>x.id===id);
   if(i>=0) seances[i] = o; else seances.push(o);
-  say((editing ? "Séance modifiée." : "Séance ajoutée.") + (save() ? "" : NOSAVE)); resetForm(f.date); render();
+  say((editing ? "Séance modifiée." : "Séance ajoutée.") + (save() ? "" : NOSAVE)); resetForm(f.date); year = +f.date.slice(0,4); month = +f.date.slice(5,7)-1; render();
 };
 $("del").onclick = () => {
   if(!editing || !confirm("Supprimer cette séance ?")) return;
@@ -236,7 +270,6 @@ $("del").onclick = () => {
 // Excel : un onglet par mois, une ligne d'en-têtes « date, sport, temps, distance, denivelé, vitesse moy, séance, commentaire, lieu »,
 //   puis une ligne par séance. Les tableaux de totaux sous les séances et les onglets sans ces en-têtes (TOTAL, Record) sont ignorés.
 // Garmin : colonnes « Type d'activité, Date, Titre, Distance, Durée, Ascension totale » (les autres colonnes ne sont pas lues).
-const YEAR = "2026";
 const norm = t => String(t??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/\s+/g," ").trim();
 const SPORT_OF = Object.fromEntries(Object.keys(SPORTS).map(k=>[norm(k),k]));
 const fmtDur = sec => `${Math.floor(sec/3600)}:${String(Math.floor(sec%3600/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`;
@@ -345,9 +378,8 @@ $("imp").onchange = async e => {
       let t = new TextDecoder().decode(u8); if(t.includes("\ufffd")) t = new TextDecoder("windows-1252").decode(u8);
       res = fromGarmin(t.replace(/^\ufeff/,""));
     }
-    const pool = seances.slice(); let added = 0, dup = 0, other = 0, n = 0;
+    const pool = seances.slice(); let added = 0, dup = 0, n = 0;
     for(const o of res.list){
-      if(o.date.slice(0,4)!==YEAR){ other++; continue; }
       const k = pool.findIndex(x=>same(x,o));
       if(k>=0){ pool.splice(k,1); dup++; continue; }
       seances.push({id:"x"+Date.now().toString(36)+(n++), ...o}); added++;
@@ -355,10 +387,9 @@ $("imp").onchange = async e => {
     const pl = (k,a,b) => `${k} ${k>1?b:a}`;
     say(`${pl(added,"séance importée","séances importées")}, ${pl(dup,"déjà présente","déjà présentes")}.`
       + (res.unknown.size ? ` Sports non reconnus, lignes ignorées : ${[...res.unknown].join(", ")}.` : "")
-      + (other ? ` ${pl(other,"séance ignorée car hors","séances ignorées car hors")} ${YEAR}.` : "")
       + (res.bad ? ` ${pl(res.bad,"ligne ignorée car sans durée","lignes ignorées car sans durée")}.` : "")
       + (added && !save() ? NOSAVE : ""));
-    if(added) render();
+    if(added){ year = month = null; render(); }
   } catch(err) {
     say(err.message==="navigateur" ? "Ce navigateur est trop ancien pour lire les fichiers Excel. Mettez-le à jour puis réessayez."
       : "Fichier non reconnu. Il faut soit le calendrier Excel (.xlsx, un onglet par mois avec les en-têtes date, sport, temps, distance…), soit l'export Activities.csv de Garmin Connect.");
