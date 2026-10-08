@@ -34,7 +34,7 @@ td.t{white-space:normal;min-width:200px}
 .cm{color:var(--mute);font-size:13px}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
 svg text{fill:var(--mute);font-size:11px}
-#chart .hit{fill:transparent}#chart .hit.on{fill:var(--line);fill-opacity:.45}#chart rect:not(.hit),#chart text,#chart line{pointer-events:none}
+svg .hit{fill:transparent}#chart .hit.on{fill:var(--line);fill-opacity:.45}#chart rect:not(.hit),#chart text,#chart line{pointer-events:none}
 .tip{position:fixed;z-index:10;pointer-events:none;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:13px;min-width:170px;box-shadow:0 4px 14px rgba(0,0,0,.18)}
 .tip b{display:block;margin-bottom:4px}.tip .r{display:flex;gap:14px;justify-content:space-between;align-items:baseline}.tip .v{font-variant-numeric:tabular-nums;white-space:nowrap}
 .tip .tot{border-top:1px solid var(--line);margin-top:4px;padding-top:4px;font-weight:700}
@@ -42,14 +42,42 @@ form{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8
 details summary{cursor:pointer;font:600 18px Georgia,serif}
 .rec li{margin:4px 0}
 [hidden]{display:none!important}
-td button{padding:1px 8px}
+td button{padding:1px 8px}td:last-child{white-space:nowrap}
+.badge{display:inline-block;border:1px solid var(--mute);border-radius:99px;padding:0 7px;margin-right:6px;font-size:11px;font-weight:700;white-space:nowrap}
+.flag{opacity:.3}.flag:hover,.flag.on{opacity:1}.flag.on{background:var(--ink);color:var(--bg)}
+.chk{display:flex;align-items:center;gap:6px;font-size:14px}.chk input{width:16px;height:16px;padding:0}
 tr.st td{font-weight:700;border-bottom:2px solid var(--line)}
 td input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;cursor:pointer}button:disabled{opacity:.55;cursor:default;background:var(--card);color:inherit}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+/* ---- Livre à imprimer : toujours sur fond blanc, quelle que soit l'apparence (claire ou sombre) de la page ---- */
+body.bk{background:#e3e7e4}body.bk main{display:none}
+#book{--bg:#fff;--card:#fff;--ink:#1b2a2f;--mute:#5d6e72;--line:#d5dcd8;color:var(--ink);font-size:13px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.bktools{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:10px 16px;background:#1b2a2f;color:#fff}
+.bktools .cm{color:#c9d3d0}.bktools select,.bktools button{background:#fff;color:#1b2a2f}.bktools button:hover{background:#d5dcd8;color:#1b2a2f}
+#bkBody{max-width:794px;margin:0 auto;padding:16px 0 40px}
+.pg{background:#fff;padding:46px 50px;margin:0 0 16px;box-shadow:0 1px 6px rgba(0,0,0,.18)}
+.pg h2{font:700 30px Georgia,serif;margin:0 0 10px;padding-bottom:6px;border-bottom:3px solid var(--ink)}
+.pg h3{font:600 17px Georgia,serif;margin:22px 0 8px;break-after:avoid}
+.pg h4{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font:600 14px Georgia,serif;margin:18px 0 2px;padding-bottom:3px;border-bottom:1px solid var(--ink);break-after:avoid}
+.pg h4 span{font:400 12px "Avenir Next",Seravek,"Segoe UI",system-ui,sans-serif;color:var(--mute)}
+.pg table{font-size:12px}.pg th,.pg td{padding:4px 6px}.pg th{cursor:default}.pg tr{break-inside:avoid}.pg td.t{min-width:150px}
+.pg .kpis{grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 8px}.pg .kpi{padding:8px 10px}.pg .kpi b{font-size:20px}
+.pg .fig{margin:14px 0 4px;break-inside:avoid}.pg .blk{break-inside:avoid}.pg thead{break-after:avoid}.pg tbody tr:first-child{break-before:avoid}.pg .fig .bar{margin:0;font-size:12px}.pg .rec{margin:0;padding-left:20px}
+.cover{min-height:1030px;display:flex;flex-direction:column;justify-content:center;text-align:center}
+.cover h1{font-size:46px;margin:0 0 10px}.cover .who{font:italic 20px Georgia,serif;margin:0;min-height:26px}.cover .per{font:700 28px Georgia,serif;margin:36px 0 26px}.cover .kpi{text-align:left}
+[contenteditable]{border-radius:4px;outline:1px dashed transparent;outline-offset:4px}[contenteditable]:hover,[contenteditable]:focus{outline-color:var(--mute)}
+[contenteditable]:empty::before{content:attr(data-ph);color:var(--mute)}
+@page{size:A4;margin:14mm 13mm}
+@media print{
+  body.bk{background:#fff}.bktools{display:none!important}#bkBody{max-width:none;padding:0}
+  .pg{box-shadow:none;padding:0;margin:0;break-before:page}.pg:first-child{break-before:auto}.newpage{break-before:page}
+  .cover{min-height:255mm}[contenteditable]:empty::before{content:""}
+}
 </style>
 </head>
 <body>
 <main>
-<h1>Suivi d'entraînement</h1>
+<div class="head"><h1>Suivi d'entraînement</h1><button id="bkOpen">Livre à imprimer</button></div>
 <div class="bar" id="years" role="tablist" aria-label="Année affichée"></div>
 <p class="sub" id="sub"></p>
 <div class="kpis" id="kpis"></div>
@@ -92,6 +120,7 @@ td input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;c
       <input name="seance" placeholder="Séance">
       <input name="lieu" placeholder="Lieu">
       <input name="commentaire" placeholder="Commentaire">
+      <label class="chk"><input type="checkbox" name="course"> Course officielle</label>
       <button id="ok">Ajouter</button><button type="button" id="del" hidden>Supprimer</button><button type="button" id="split" hidden>Séparer</button><button type="button" id="cancel" hidden>Annuler</button>
     </form>
     <div class="bar" style="margin-top:12px">
@@ -104,6 +133,16 @@ td input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;c
 </div>
 <div class="tip" id="tip" hidden></div>
 </main>
+<div id="book" hidden>
+  <div class="bktools">
+    <button id="bkClose">← Retour au suivi</button>
+    <label class="cm">Contenu <select id="bkScope" aria-label="Années du livre"></select></label>
+    <label class="chk"><input type="checkbox" id="bkDetail" checked> Détail des séances</label>
+    <button id="bkPrint">Imprimer ou enregistrer en PDF</button>
+    <span class="cm" id="bkInfo"></span>
+  </div>
+  <div id="bkBody"></div>
+</div>
 
 <script>
 // Les séances sont enregistrées dans ce navigateur (localStorage). Distance en km, sauf natation en mètres.
@@ -135,10 +174,11 @@ const load = () => { try {
   } catch { return []; } };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(seances)); return true; } catch { return false; } };
 const parseDur = d => { const p = String(d).split(":").map(Number); return p.length===3 ? p[0]*3600+p[1]*60+p[2] : p[0]*60+(p[1]||0); };
-const toObj = o => ({id:o.id,date:o.date,sport:o.sport,sec:parseDur(o.duree),dist:o.distance||0,dplus:o.dplus||0,title:o.seance||"",comment:o.commentaire||"",place:o.lieu||"",y:+o.date.slice(0,4),m:+o.date.slice(5,7)-1,parts:(o.parts||[]).length});
+const toObj = o => ({id:o.id,date:o.date,sport:o.sport,sec:parseDur(o.duree),dist:o.distance||0,dplus:o.dplus||0,title:o.seance||"",comment:o.commentaire||"",place:o.lieu||"",y:+o.date.slice(0,4),m:+o.date.slice(5,7)-1,parts:(o.parts||[]).length,race:!!o.course});
 let seances = load().map((o,i)=>o.id?o:{...o,id:"m"+i});
 let all = [], data = [], sort = {k:"date",d:-1}, metric = "h"; // all : toutes les séances ; data : celles de l'année affichée
-let year = null;  // onglet d'année : "" = toutes les années, sinon l'année, null = pas encore choisi (dernière année qui a des séances)
+let year = null;  // onglet du haut : "" = toutes les années, "races" = courses officielles, sinon l'année ; null = pas encore choisi (dernière année qui a des séances)
+const multi = () => typeof year !== "number"; // vue sur plusieurs années (« Toutes les années » ou « Courses officielles »)
 const picked = new Set(); // identifiants des séances cochées dans la liste (pour les fusionner)
 let month = null; // sous-onglet : "" = toute l'année, 0 à 11 = un mois, null = pas encore choisi (dernier mois qui a des séances)
 
@@ -153,33 +193,38 @@ function pace(s){
   return (s.dist/(s.sec/3600)).toFixed(1)+" km/h";
 }
 const DF = new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short"}), DFY = new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"short",year:"numeric"});
-const fdate = d => (year==="" ? DFY : DF).format(new Date(d+"T12:00")); // avec l'année dans « Toutes les années »
+const fdate = d => (multi() ? DFY : DF).format(new Date(d+"T12:00")); // avec l'année dans les vues sur plusieurs années
 const sum = (a,f) => a.reduce((t,x)=>t+f(x),0);
 
 function years(){
   const n = {}; all.forEach(s=>n[s.y]=(n[s.y]||0)+1);
-  const ys = [...new Set([...Object.keys(n).map(Number), ...(year==="" ? [] : [year])])].sort((a,b)=>a-b);
-  $("years").innerHTML = [["","Toutes les années",all.length], ...ys.map(y=>[y,y,n[y]||0])].map(([v,l,c])=>`<button class="chip big${year===v?" on":""}${c?"":" off"}" role="tab" aria-selected="${year===v}" data-y="${v}">${l}${c?`<small>${c}</small>`:""}</button>`).join("");
-  document.querySelectorAll("[data-y]").forEach(b=>b.onclick=()=>{ year = b.dataset.y==="" ? "" : +b.dataset.y; month = null; render(); document.querySelector(`[data-y="${year}"]`).focus(); });
+  const ys = [...new Set([...Object.keys(n).map(Number), ...(multi() ? [] : [year])])].sort((a,b)=>a-b);
+  const list = [["","Toutes les années",all.length], ...ys.map(y=>[y,y,n[y]||0]), ["races","Courses officielles",all.filter(s=>s.race).length]];
+  $("years").innerHTML = list.map(([v,l,c])=>`<button class="chip big${year===v?" on":""}${c?"":" off"}" role="tab" aria-selected="${year===v}" data-y="${v}">${l}${c?`<small>${c}</small>`:""}</button>`).join("");
+  document.querySelectorAll("[data-y]").forEach(b=>b.onclick=()=>{ const v = b.dataset.y; year = v==="" || v==="races" ? v : +v; month = null; render(); document.querySelector(`[data-y="${year}"]`).focus(); });
 }
+const plur = (n,a,b) => `${n} ${n>1?b:a}`;
+// Les quatre chiffres clés d'une liste de séances
+const kpiHtml = (list,what="d'entraînement") => [
+    [hms(sum(list,s=>s.sec)),what],
+    [Math.round(sum(list.filter(s=>s.sport!=="natation"),s=>s.dist||0)).toLocaleString("fr-FR")+" km","parcourus, hors natation"],
+    [Math.round(sum(list,s=>s.dplus||0)).toLocaleString("fr-FR")+" m","de dénivelé positif"],
+    [Math.round(sum(list.filter(s=>s.sport==="natation"),s=>s.dist)/100)/10+" km","de natation"]
+  ].map(k=>`<div class="kpi"><b>${k[0]}</b><span>${k[1]}</span></div>`).join("");
 function render(){
   syncSports();
   all = seances.map(toObj);
   if(year===null) year = all.length ? all.reduce((m,s)=>Math.max(m,s.y),0) : new Date().getFullYear();
-  data = year==="" ? all : all.filter(s=>s.y===year);
-  if(year==="") month = ""; else if(month===null) month = data.reduce((m,s)=>Math.max(m,s.m),-1);
+  const R = year==="races";
+  data = year==="" ? all : R ? all.filter(s=>s.race) : all.filter(s=>s.y===year);
+  if(multi()) month = ""; else if(month===null) month = data.reduce((m,s)=>Math.max(m,s.m),-1);
   if(month===-1) month = "";
   years();
-  $("hChart").textContent = year==="" ? "Volume par année" : `Volume par mois en ${year}`;
-  $("hRec").textContent = year==="" ? "Faits marquants, toutes années" : `Faits marquants ${year}`;
-  $("hList").textContent = year==="" ? "Séances, toutes années" : `Séances ${year}`;
-  $("sub").textContent = `${data.length} séance${data.length>1?"s":""} enregistrée${data.length>1?"s":""} · ${(n=>`${n} jour${n>1?"s":""} actif${n>1?"s":""}`)(new Set(data.map(s=>s.date)).size)}`;
-  $("kpis").innerHTML = [
-    [hms(sum(data,s=>s.sec)),"d'entraînement"],
-    [Math.round(sum(data.filter(s=>s.sport!=="natation"),s=>s.dist||0)).toLocaleString("fr-FR")+" km","parcourus, hors natation"],
-    [Math.round(sum(data,s=>s.dplus||0)).toLocaleString("fr-FR")+" m","de dénivelé positif"],
-    [Math.round(sum(data.filter(s=>s.sport==="natation"),s=>s.dist)/100)/10+" km","de natation"]
-  ].map(k=>`<div class="kpi"><b>${k[0]}</b><span>${k[1]}</span></div>`).join("");
+  $("hChart").textContent = R ? "Courses officielles : volume par année" : year==="" ? "Volume par année" : `Volume par mois en ${year}`;
+  $("hRec").textContent = R ? "Faits marquants en course" : year==="" ? "Faits marquants, toutes années" : `Faits marquants ${year}`;
+  $("hList").textContent = R ? "Courses officielles" : year==="" ? "Séances, toutes années" : `Séances ${year}`;
+  $("sub").textContent = R ? plur(data.length,"course officielle","courses officielles") : `${plur(data.length,"séance enregistrée","séances enregistrées")} · ${plur(new Set(data.map(s=>s.date)).size,"jour actif","jours actifs")}`;
+  $("kpis").innerHTML = kpiHtml(data, R ? "en course" : "d'entraînement");
   chart(); bySport(); records(); table();
 }
 
@@ -196,71 +241,80 @@ function showTip(e){
 $("chart").addEventListener("pointermove", showTip); $("chart").addEventListener("pointerdown", showTip); // pointerdown : écrans tactiles
 $("chart").addEventListener("pointerleave", e=>e.pointerType==="mouse" && hideTip());
 document.addEventListener("pointerdown", e=>$("chart").contains(e.target) || hideTip()); addEventListener("scroll", hideTip, {passive:true});
-function chart(){
-  $("metric").innerHTML = [["h","Heures"],["km","Kilomètres"],["d","D+ (m)"]].map(m=>`<button class="chip ${metric===m[0]?"on":""}" data-m="${m[0]}">${m[1]}</button>`).join("");
-  const val = s => metric==="h"?s.sec/3600:metric==="km"?km(s):(s.dplus||0);
+const VAL = {h:s=>s.sec/3600, km:s=>km(s), d:s=>s.dplus||0};
+// Graphique empilé d'une liste de séances : un bâton par mois, ou par année si byYear. m : "h", "km" ou "d". suffix : complément du titre des bulles.
+function buildChart(list, byYear, m, suffix=""){
+  const val = VAL[m];
   // Une couleur par sport principal ; les sports en gris (ski rando, randonnée, sports créés) forment une seule série « Autres sports ».
-  const live = Object.keys(SPORTS).filter(k=>data.some(s=>s.sport===k&&val(s)>0)), grey = k => SPORTS[k][1]==="--c-autre", rest = live.filter(grey);
+  const live = Object.keys(SPORTS).filter(k=>list.some(s=>s.sport===k&&val(s)>0)), grey = k => SPORTS[k][1]==="--c-autre", rest = live.filter(grey);
   const series = live.filter(k=>!grey(k)).map(k=>({l:name(k),c:col(k),has:s=>s.sport===k}));
   if(rest.length) series.push({l:rest.length===1 ? name(rest[0]) : `Autres sports (${rest.slice(0,3).map(name).join(", ")}${rest.length>3?"…":""})`, c:"var(--c-autre)", has:s=>rest.includes(s.sport)});
-  const y0 = data.reduce((m,s)=>Math.min(m,s.y),9999), y1 = data.reduce((m,s)=>Math.max(m,s.y),0);
-  const B = year==="" ? Array.from({length:Math.max(0,y1-y0+1)},(_,i)=>({short:String(y0+i),long:String(y0+i),a:data.filter(s=>s.y===y0+i)}))
-                      : MONTHS.map((m,i)=>({short:MSHORT[i],long:m,a:data.filter(s=>s.m===i)}));
+  const y0 = list.reduce((a,s)=>Math.min(a,s.y),9999), y1 = list.reduce((a,s)=>Math.max(a,s.y),0);
+  const B = byYear ? Array.from({length:Math.max(0,y1-y0+1)},(_,i)=>({short:String(y0+i),long:String(y0+i),a:list.filter(s=>s.y===y0+i)}))
+                   : MONTHS.map((mn,i)=>({short:MSHORT[i],long:mn,a:list.filter(s=>s.m===i)}));
   const tot = B.map(x=>sum(x.a,val));
   const max = Math.max(1,...tot), W=720,H=240,b=26,t=14,step=(W-40)/Math.max(1,B.length),bw=Math.min(36,step*.7);
   // Bulle au survol d'une colonne : détail par sport (du haut de la pile vers le bas) puis total
-  const fmt = v => metric==="h" ? hms(v*3600) : (v<100 ? Math.round(v*10)/10 : Math.round(v)).toLocaleString("fr-FR")+(metric==="km" ? " km" : " m");
+  const fmt = v => m==="h" ? hms(v*3600) : (v<100 ? Math.round(v*10)/10 : Math.round(v)).toLocaleString("fr-FR")+(m==="km" ? " km" : " m");
   const order = [...live.filter(k=>!grey(k)), ...rest].reverse();
-  tips = B.map(({long,a},i)=>tot[i]>0 ? `<b>${long}${year==="" ? "" : " "+year}</b>`
+  const tips = B.map(({long,a},i)=>tot[i]>0 ? `<b>${long}${suffix}</b>`
     + order.map(k=>[k,sum(a.filter(s=>s.sport===k),val)]).filter(x=>x[1]>0).map(([k,v])=>`<div class="r"><span><i class="dot" style="background:${col(k)}"></i>${name(k)}</span><span class="v">${fmt(v)}</span></div>`).join("")
     + `<div class="r tot"><span>Total · ${a.length} séance${a.length>1?"s":""}</span><span class="v">${fmt(tot[i])}</span></div>` : "");
-  hideTip();
   let g = "";
-  B.forEach(({short,long:mn,a},i)=>{
+  B.forEach(({short,a},i)=>{
     let y = H-b; const x = 40+i*step+(step-bw)/2;
     g+=`<rect class="hit" data-i="${i}" x="${40+i*step}" y="0" width="${step}" height="${H}"/>`;
-    series.forEach(({l,c,has})=>{
+    series.forEach(({c,has})=>{
       const v = sum(a.filter(has),val), h = v/max*(H-b-t);
       if(h>0){ y-=h; g+=`<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${c}"/>`; }
     });
-    if(tot[i]>0) g+=`<text x="${x+bw/2}" y="${y-4}" text-anchor="middle">${Math.round(tot[i]*(metric==="h"?10:1))/(metric==="h"?10:1)}</text>`;
+    if(tot[i]>0) g+=`<text x="${x+bw/2}" y="${y-4}" text-anchor="middle">${Math.round(tot[i]*(m==="h"?10:1))/(m==="h"?10:1)}</text>`;
     g+=`<text x="${x+bw/2}" y="${H-8}" text-anchor="middle">${short}</text>`;
   });
   g+=`<line x1="36" x2="${W}" y1="${H-b}" y2="${H-b}" stroke="var(--line)"/>`;
-  $("chart").innerHTML = g;
-  $("legend").innerHTML = series.map(({l,c})=>`<span><i class="dot" style="background:${c}"></i>${l}</span>`).join("");
+  return {svg:g, legend:series.map(({l,c})=>`<span><i class="dot" style="background:${c}"></i>${l}</span>`).join(""), tips};
+}
+function chart(){
+  $("metric").innerHTML = [["h","Heures"],["km","Kilomètres"],["d","D+ (m)"]].map(m=>`<button class="chip ${metric===m[0]?"on":""}" data-m="${m[0]}">${m[1]}</button>`).join("");
+  const c = buildChart(data, multi(), metric, multi() ? "" : " "+year);
+  tips = c.tips; hideTip(); $("chart").innerHTML = c.svg; $("legend").innerHTML = c.legend;
   document.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{metric=b.dataset.m;chart();});
 }
 
 // Sous-totaux du bilan : [libellé, sports regroupés]. L'allure du sous-total suit celle du premier sport (min/km ou km/h).
 const GROUPS = [["Total course à pied",["course route","trail"]],["Total vélo",["velo route","home trainer","vtt"]]];
-function bySport(){
-  const view = month==="" ? data : data.filter(s=>s.m===month); // suit le sous-onglet de mois de la liste des séances
-  $("hBil").textContent = "Bilan par sport" + (year==="" ? ", toutes années" : month==="" ? " "+year : `, ${MONTHS[month].toLowerCase()} ${year}`);
+function bilanHtml(view){
   const line = (lab,a,k,cls) => { const d = sum(a,km), t = sum(a,s=>s.sec), dp = sum(a,s=>s.dplus||0), p = pace({sport:k,sec:t,dist:k==="natation"?d*1000:d});
     return `<tr${cls?` class="${cls}"`:""}><td>${lab}</td><td class="n">${a.length}</td><td class="n">${hms(t)}</td><td class="n">${d?d.toFixed(0):""}</td><td class="n">${dp?Math.round(dp).toLocaleString("fr-FR"):""}</td><td class="n">${p}</td></tr>`; };
   const one = k => { const a = view.filter(s=>s.sport===k); return a.length ? line(`<i class="dot" style="background:${col(k)}"></i>${name(k)}`,a,k) : ""; };
   const grouped = new Set(GROUPS.flatMap(g=>g[1]));
   const rows = GROUPS.map(([lab,ks])=>{ const a = view.filter(s=>ks.includes(s.sport)); return a.length ? ks.map(one).join("")+line(lab,a,ks[0],"st") : ""; }).join("")
     + Object.keys(SPORTS).filter(k=>!grouped.has(k)).map(one).join("");
-  $("bySport").innerHTML = `<tr><th>Sport</th><th class="n">Nb</th><th class="n">Temps</th><th class="n">km</th><th class="n">D+</th><th class="n">Moy.</th></tr>${rows || `<tr><td colspan="6" class="cm">Aucune séance sur cette période.</td></tr>`}`;
+  return `<tr><th>Sport</th><th class="n">Nb</th><th class="n">Temps</th><th class="n">km</th><th class="n">D+</th><th class="n">Moy.</th></tr>${rows || `<tr><td colspan="6" class="cm">Aucune séance sur cette période.</td></tr>`}`;
+}
+function bySport(){
+  const view = month==="" ? data : data.filter(s=>s.m===month); // suit le sous-onglet de mois de la liste des séances
+  $("hBil").textContent = "Bilan par sport" + (year==="races" ? ", courses officielles" : year==="" ? ", toutes années" : month==="" ? " "+year : `, ${MONTHS[month].toLowerCase()} ${year}`);
+  $("bySport").innerHTML = bilanHtml(view);
 }
 
-function records(){
-  const best = (f,flt=()=>true) => data.filter(flt).reduce((a,s)=>!a||f(s)>f(a)?s:a,null);
+// Faits marquants d'une liste de séances ; df : format des dates
+function recItems(list, df){
+  const best = (f,flt=()=>true) => list.filter(flt).reduce((a,s)=>!a||f(s)>f(a)?s:a,null);
   const out = [];
-  const add = (label,s,v) => s&&out.push(`<li><b>${label}</b> : ${v} — ${esc(s.title)||name(s.sport)} (${fdate(s.date)}${s.place?", "+esc(s.place):""})</li>`);
+  const add = (label,s,v) => s&&out.push(`<li><b>${label}</b> : ${v} — ${esc(s.title)||name(s.sport)} (${df.format(new Date(s.date+"T12:00"))}${s.place?", "+esc(s.place):""})</li>`);
   let s = best(s=>s.dist,s=>s.sport==="trail"); add("Plus longue sortie trail",s,s&&s.dist+" km");
   s = best(s=>s.dplus||0); add("Plus gros dénivelé",s,s&&s.dplus.toLocaleString("fr-FR")+" m");
   s = best(s=>s.dist,s=>s.sport==="course route"); add("Plus longue course route",s,s&&s.dist+" km");
   s = best(s=>s.dist,s=>s.sport==="velo route"); add("Plus longue sortie vélo",s,s&&s.dist+" km");
   s = best(s=>s.dist,s=>s.sport==="natation"); add("Plus longue nage",s,s&&s.dist+" m");
   s = best(s=>s.dist/s.sec,s=>s.sport==="course route"&&s.dist>=9.9); add("Meilleure allure (≥ 10 km)",s,s&&pace(s));
-  $("rec").innerHTML = out.join("");
+  return out.join("");
 }
+function records(){ $("rec").innerHTML = recItems(data, multi() ? DFY : DF); }
 
 function tabs(){
-  $("tabs").hidden = year===""; // pas de sous-onglets dans « Toutes les années »
+  $("tabs").hidden = multi(); // pas de sous-onglets de mois dans les vues sur plusieurs années
   const list = [["","Toute l'année",data.length], ...MONTHS.map((m,i)=>[i,m,data.filter(s=>s.m===i).length])];
   $("tabs").innerHTML = list.map(([v,l,n])=>`<button class="chip${month===v?" on":""}${n?"":" off"}" role="tab" aria-selected="${month===v}" data-mo="${v}">${l}${n?`<small>${n}</small>`:""}</button>`).join("");
   document.querySelectorAll("[data-mo]").forEach(b=>b.onclick=()=>{
@@ -284,10 +338,17 @@ function table(full){
   const shown = full===true ? a : a.slice(0,MAXROWS), ids = new Set(shown.map(s=>s.id));
   picked.forEach(id=>ids.has(id) || picked.delete(id)); // une séance qui n'est plus affichée n'est plus cochée
   $("tbl").innerHTML = `<tr><th></th>${th("date","Date")}${th("sport","Sport")}${th("sec","Durée",1)}${th("dist","Distance",1)}${th("dplus","D+",1)}<th class="n">Allure</th><th>Séance</th><th>Lieu</th><th></th></tr>`+
-    (a.length ? "" : `<tr><td colspan="10" class="cm">${!all.length ? "Aucune séance pour l'instant : ajoutez-en une ci-dessous." : fs || q ? "Aucune séance ne correspond à ces filtres." : `Aucune séance en ${month==="" ? "" : MONTHS[month].toLowerCase()+" "}${year}.`}</td></tr>`)+
-    shown.map(s=>`<tr><td><input type="checkbox" data-s="${esc(s.id)}"${picked.has(s.id)?" checked":""} aria-label="Cocher cette séance pour la fusionner"></td><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${esc(s.title)}${s.parts?`<span class="cm">${s.title?" · ":""}fusion de ${s.parts} séances</span>`:""}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td><td><button data-e="${esc(s.id)}" aria-label="Modifier cette séance">✎</button></td></tr>`).join("")+
+    (a.length ? "" : `<tr><td colspan="10" class="cm">${!all.length ? "Aucune séance pour l'instant : ajoutez-en une ci-dessous." : fs || q ? "Aucune séance ne correspond à ces filtres." : year==="races" ? "Aucune course officielle pour l'instant. Pour en marquer une, cliquez sur ⚑ dans la liste des séances, ou cochez « Course officielle » en la modifiant (✎)." : `Aucune séance en ${month==="" ? "" : MONTHS[month].toLowerCase()+" "}${year}.`}</td></tr>`)+
+    shown.map(s=>`<tr><td><input type="checkbox" data-s="${esc(s.id)}"${picked.has(s.id)?" checked":""} aria-label="Cocher cette séance pour la fusionner"></td><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${s.race?'<span class="badge">Course</span>':""}${esc(s.title)}${s.parts?`<span class="cm">${s.title?" · ":""}fusion de ${s.parts} séances</span>`:""}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td><td><button class="flag${s.race?" on":""}" data-r="${esc(s.id)}" aria-pressed="${s.race}" title="Course officielle" aria-label="Course officielle">⚑</button> <button data-e="${esc(s.id)}" aria-label="Modifier cette séance">✎</button></td></tr>`).join("")+
     (full!==true && a.length>MAXROWS ? `<tr><td colspan="10"><button id="more">Afficher les ${a.length-MAXROWS} séances suivantes</button></td></tr>` : "");
   if($("more")) $("more").onclick = () => table(true);
+  document.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>{ // marquer ou démarquer une course officielle
+    const o = seances.find(x=>x.id===b.dataset.r); if(!o) return;
+    if(o.course) delete o.course; else o.course = true;
+    const saved = save(); if(editing===o.id) form.elements.course.checked = !!o.course;
+    render(); $("lmsg").textContent = (o.course ? "Séance marquée comme course officielle." : "Course officielle retirée.") + (saved ? "" : NOSAVE);
+    const again = [...document.querySelectorAll("[data-r]")].find(x=>x.dataset.r===o.id); if(again) again.focus();
+  });
   document.querySelectorAll("[data-s]").forEach(c=>c.onchange=()=>{ c.checked ? picked.add(c.dataset.s) : picked.delete(c.dataset.s); $("lmsg").textContent = ""; mergeBtn(); });
   mergeBtn();
   document.querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>edit(b.dataset.e));
@@ -302,7 +363,7 @@ $("merge").onclick = () => {
   const main = sel.reduce((a,o)=>parseDur(o.duree)>parseDur(a.duree)?o:a), sport = main.sport, total = sum(sel,kmOf); // sport : celui de la plus longue
   const uniq = f => [...new Set(sel.map(o=>(o[f]||"").trim()).filter(Boolean))];
   const o = {id:Date.now().toString(36)+Math.random().toString(36).slice(2,5), date:sel[0].date, sport, duree:fmtDur(sum(sel,x=>parseDur(x.duree))),
-    distance:Math.round((sport==="natation" ? total*1000 : total)*100)/100, dplus:sum(sel,x=>x.dplus||0), seance:uniq("seance").join(" + "), commentaire:uniq("commentaire").join(" · "), lieu:uniq("lieu")[0]||"",
+    distance:Math.round((sport==="natation" ? total*1000 : total)*100)/100, dplus:sum(sel,x=>x.dplus||0), seance:uniq("seance").join(" + "), commentaire:uniq("commentaire").join(" · "), lieu:uniq("lieu")[0]||"", ...(sel.some(x=>x.course) ? {course:true} : {}),
     parts:sel.flatMap(x=>x.parts||[(({id,parts,...r})=>r)(x)])};
   const v = toObj(o), mixed = new Set(sel.map(x=>x.sport)).size>1, days = new Set(sel.map(x=>x.date)).size>1;
   if(!confirm(`Fusionner ces ${sel.length} séances en une seule ?\n\n${fdate(o.date)} · ${sportLabel(sport)} · ${hms(v.sec)}${v.dist?` · ${v.dist} ${sport==="natation"?"m":"km"}`:""}${v.dplus?` · D+ ${v.dplus} m`:""}`
@@ -328,7 +389,7 @@ const resetForm = d => { form.reset(); form.elements.date.value = d || new Date(
 function edit(id){
   const s = seances.find(o=>o.id===id); if(!s) return;
   const f = form.elements; f.date.value = s.date; f.sport.value = s.sport; f.duree.value = s.duree; f.distance.value = s.distance||""; f.dplus.value = s.dplus||"";
-  f.seance.value = s.seance||""; f.lieu.value = s.lieu||""; f.commentaire.value = s.commentaire||"";
+  f.seance.value = s.seance||""; f.lieu.value = s.lieu||""; f.commentaire.value = s.commentaire||""; f.course.checked = !!s.course;
   sportSel.onchange(); setMode(id); $("mode").textContent = `Modification de la séance du ${fdate(s.date)}`;
   $("addbox").open = true; $("addbox").scrollIntoView({behavior:"smooth"});
 }
@@ -341,10 +402,11 @@ $("split").onclick = () => {
 form.onsubmit = e => {
   e.preventDefault(); const f = Object.fromEntries(new FormData(form));
   const id = editing || Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-  const o = {id,date:f.date,sport:f.sport,duree:f.duree,distance:+f.distance||0,dplus:+f.dplus||0,seance:f.seance.trim(),commentaire:f.commentaire.trim(),lieu:f.lieu.trim()};
+  const o = {id,date:f.date,sport:f.sport,duree:f.duree,distance:+f.distance||0,dplus:+f.dplus||0,seance:f.seance.trim(),commentaire:f.commentaire.trim(),lieu:f.lieu.trim(), ...(f.course ? {course:true} : {})};
   const i = seances.findIndex(x=>x.id===id);
   if(i>=0) seances[i] = seances[i].parts ? {...o, parts:seances[i].parts} : o; else seances.push(o);
-  say((editing ? "Séance modifiée." : "Séance ajoutée.") + (save() ? "" : NOSAVE)); resetForm(f.date); year = +f.date.slice(0,4); month = +f.date.slice(5,7)-1; render();
+  say((editing ? "Séance modifiée." : "Séance ajoutée.") + (save() ? "" : NOSAVE)); const stay = editing && multi(); // une modification faite depuis « Toutes les années » ou « Courses » ne change pas de vue
+  resetForm(f.date); if(!stay){ year = +f.date.slice(0,4); month = +f.date.slice(5,7)-1; } render();
 };
 $("del").onclick = () => {
   if(!editing || !confirm("Supprimer cette séance ?")) return;
@@ -483,6 +545,53 @@ $("imp").onchange = async e => {
   }
   e.target.value = "";
 };
+
+// ---- Livre à imprimer ----
+// Couverture, vue d'ensemble, puis un chapitre par année (chiffres, graphiques, bilan par sport, faits marquants, courses, séances mois par mois)
+// et le palmarès des courses officielles. L'impression (ou « Enregistrer au format PDF ») passe par la boîte d'impression du navigateur.
+const BK = "suivi-livre", DL = new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"long",year:"numeric"});
+let bk = (() => { try { return JSON.parse(localStorage.getItem(BK)) || {}; } catch { return {}; } })(); // titre et nom saisis sur la couverture
+function bookHtml(scope, detail){
+  const src = all.slice().sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0), list = scope==="" ? src : src.filter(s=>s.y===+scope);
+  if(!list.length) return `<section class="pg"><p>Aucune séance à imprimer pour l'instant.</p></section>`;
+  const ys = [...new Set(list.map(s=>s.y))].sort((a,b)=>a-b), races = list.filter(s=>s.race), day = (df,s) => df.format(new Date(s.date+"T12:00"));
+  const fig = (l,byYear,m,cap) => { const c = buildChart(l,byYear,m); return `<div class="fig"><div class="cm">${cap}</div><svg viewBox="0 0 720 240" width="100%" role="img" aria-label="${cap}">${c.svg}</svg><div class="bar">${c.legend}</div></div>`; };
+  const blk = (t,body) => `<div class="blk"><h3>${t}</h3>${body}</div>`, tbl = (l,df) => `<table><thead>${head}</thead><tbody>${rows(l,df)}</tbody></table>`;
+  const head = `<tr><th>Date</th><th>Sport</th><th class="n">Durée</th><th class="n">Distance</th><th class="n">D+</th><th class="n">Allure</th><th>Séance</th><th>Lieu</th></tr>`;
+  const rows = (l,df) => l.map(s=>`<tr><td>${day(df,s)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${s.race?'<span class="badge">Course</span>':""}${esc(s.title)}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td></tr>`).join("");
+  const nb = v => Math.round(v).toLocaleString("fr-FR"), kms = l => sum(l,s=>s.sport==="natation" ? 0 : s.dist||0); // km hors natation, comme les chiffres clés
+  const tot = l => `${plur(l.length,"séance","séances")} · ${hms(sum(l,s=>s.sec))} · ${nb(kms(l))} km · ${nb(sum(l,s=>s.dplus||0))} m D+`;
+  const facts = l => `${plur(l.length,"séance","séances")} · ${plur(new Set(l.map(s=>s.date)).size,"jour actif","jours actifs")} · ${plur(l.filter(s=>s.race).length,"course officielle","courses officielles")}`;
+  const yrow = (lab,l,cls) => `<tr${cls?` class="${cls}"`:""}><td>${lab}</td><td class="n">${l.length}</td><td class="n">${hms(sum(l,s=>s.sec))}</td><td class="n">${nb(kms(l))}</td><td class="n">${nb(sum(l,s=>s.dplus||0))}</td><td class="n">${l.filter(s=>s.race).length||""}</td></tr>`;
+  let h = `<section class="pg cover"><h1 contenteditable data-k="title" data-ph="Titre du livre">${esc(bk.title ?? "Carnet d'entraînement")}</h1>`
+    + `<p class="who" contenteditable data-k="who" data-ph="Votre nom (cliquez pour l'écrire)">${esc(bk.who)}</p><p class="per">${ys.length>1 ? ys[0]+" – "+ys[ys.length-1] : ys[0]}</p>`
+    + `<div class="kpis">${kpiHtml(list)}</div><p>${facts(list)}</p><p class="cm">Édité le ${DL.format(new Date())}</p></section>`;
+  if(ys.length>1) h += `<section class="pg"><h2>Vue d'ensemble</h2>${fig(list,true,"h","Heures par année")}${fig(list,true,"km","Kilomètres par année")}`
+    + `<div class="blk"><h3>Année par année</h3><table><tr><th>Année</th><th class="n">Séances</th><th class="n">Temps</th><th class="n">km</th><th class="n">D+ (m)</th><th class="n">Courses</th></tr>${ys.map(y=>yrow(y,list.filter(s=>s.y===y))).join("")}${yrow("Total",list,"st")}</table></div>`
+    + blk("Bilan par sport",`<table>${bilanHtml(list)}</table>`) + blk("Faits marquants",`<ul class="rec">${recItems(list,DFY)}</ul>`) + `</section>`;
+  for(const y of ys){
+    const l = list.filter(s=>s.y===y), r = l.filter(s=>s.race);
+    h += `<section class="pg"><h2>${y}</h2><div class="kpis">${kpiHtml(l)}</div><p class="cm">${facts(l)}</p>${fig(l,false,"h","Heures par mois en "+y)}${fig(l,false,"km","Kilomètres par mois en "+y)}`
+      + blk("Bilan par sport",`<table>${bilanHtml(l)}</table>`) + blk("Faits marquants",`<ul class="rec">${recItems(l,DF)}</ul>`)
+      + (r.length ? blk("Courses officielles",tbl(r,DF)) : "")
+      + (detail ? `<h3 class="newpage">Séances ${y}</h3>` + MONTHS.map((mn,i)=>{ const ml = l.filter(s=>s.m===i); return ml.length ? `<h4>${mn} ${y}<span>${tot(ml)}</span></h4>${tbl(ml,DF)}` : ""; }).join("") : "")
+      + `</section>`;
+  }
+  if(races.length && ys.length>1) h += `<section class="pg"><h2>Courses officielles</h2><p class="cm">${tot(races)}</p>${tbl(races,DFY)}</section>`;
+  return h;
+}
+function drawBook(){
+  const scope = $("bkScope").value; $("bkBody").innerHTML = bookHtml(scope, $("bkDetail").checked);
+  $("bkInfo").textContent = "Le titre et le nom de la couverture se modifient en cliquant dessus.";
+  $("bkBody").querySelectorAll("[contenteditable]").forEach(el=>el.oninput=()=>{ bk[el.dataset.k] = el.textContent.trim(); try { localStorage.setItem(BK, JSON.stringify(bk)); } catch {} });
+}
+$("bkOpen").onclick = () => {
+  $("bkScope").innerHTML = `<option value="">Toutes les années</option>` + [...new Set(all.map(s=>s.y))].sort((a,b)=>a-b).map(y=>`<option value="${y}">${y} seulement</option>`).join("");
+  hideTip(); document.body.classList.add("bk"); $("book").hidden = false; drawBook(); scrollTo(0,0);
+};
+$("bkClose").onclick = () => { document.body.classList.remove("bk"); $("book").hidden = true; $("bkBody").innerHTML = ""; scrollTo(0,0); };
+$("bkScope").onchange = $("bkDetail").onchange = drawBook;
+$("bkPrint").onclick = () => print();
 
 render();
 if(!seances.length) $("addbox").open = true;
