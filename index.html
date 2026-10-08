@@ -39,6 +39,7 @@ details summary{cursor:pointer;font:600 18px Georgia,serif}
 .rec li{margin:4px 0}
 [hidden]{display:none!important}
 td button{padding:1px 8px}
+td input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;cursor:pointer}button:disabled{opacity:.55;cursor:default;background:var(--card);color:inherit}
 </style>
 </head>
 <body>
@@ -67,6 +68,8 @@ td button{padding:1px 8px}
     <select id="fSport"></select>
     <input id="fText" type="search" placeholder="Rechercher (séance, lieu…)" aria-label="Rechercher">
     <span class="cm" id="count"></span>
+    <button id="merge" disabled title="Cochez au moins deux séances dans la liste">Fusionner</button>
+    <span class="cm" id="lmsg" role="status"></span>
   </div>
   <div class="wrap"><table id="tbl"></table></div>
 </div>
@@ -84,13 +87,13 @@ td button{padding:1px 8px}
       <input name="seance" placeholder="Séance">
       <input name="lieu" placeholder="Lieu">
       <input name="commentaire" placeholder="Commentaire">
-      <button id="ok">Ajouter</button><button type="button" id="del" hidden>Supprimer</button><button type="button" id="cancel" hidden>Annuler</button>
+      <button id="ok">Ajouter</button><button type="button" id="del" hidden>Supprimer</button><button type="button" id="split" hidden>Séparer</button><button type="button" id="cancel" hidden>Annuler</button>
     </form>
     <div class="bar" style="margin-top:12px">
       <label class="cm" for="imp">Compléter depuis un fichier : calendrier Excel (.xlsx) ou export Garmin Connect (Activities.csv)</label>
       <input type="file" id="imp" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
     </div>
-    <p class="cm" style="margin:12px 0 4px">Les séances sont enregistrées dans ce navigateur. L'import ajoute les séances absentes, sans toucher à celles déjà présentes.</p>
+    <p class="cm" style="margin:12px 0 4px">Les séances sont enregistrées dans ce navigateur. L'import ajoute les séances absentes, sans toucher à celles déjà présentes ; un sport inconnu est créé automatiquement.</p>
     <p class="cm" id="msg" role="status"></p>
   </details>
 </div>
@@ -98,12 +101,27 @@ td button{padding:1px 8px}
 
 <script>
 // Les séances sont enregistrées dans ce navigateur (localStorage). Distance en km, sauf natation en mètres.
-const SPORTS = {"course route":["Course route","--c-route"],"trail":["Trail","--c-trail"],"velo route":["Vélo route","--c-velo"],"vtt":["VTT","--c-vtt"],"natation":["Natation","--c-nat"],"renfo":["Renfo","--c-renfo"],"ski rando":["Ski rando","--c-autre"],"randonnée":["Randonnée","--c-autre"]};
+// Sports de base. Tout autre nom de sport rencontré dans les séances (type d'activité inconnu à l'import) devient un sport à part entière.
+const BASE = {"course route":["Course route","--c-route"],"trail":["Trail","--c-trail"],"velo route":["Vélo route","--c-velo"],"vtt":["VTT","--c-vtt"],"natation":["Natation","--c-nat"],"renfo":["Renfo","--c-renfo"],"ski rando":["Ski rando","--c-autre"],"randonnée":["Randonnée","--c-autre"]};
 const MSHORT = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
 const MONTHS = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
 const KEY = "suivi-2026-seances", OLD = "suivi-2026-modifs";
 const $ = id => document.getElementById(id);
-const name = k => (SPORTS[k]||[k])[0], col = k => `var(${(SPORTS[k]||[0,"--c-autre"])[1]})`;
+let SPORTS = Object.create(null); // sports de base + sports créés, recalculé par syncSports() à chaque affichage
+const norm = t => String(t??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/\s+/g," ").trim();
+const label = k => k.charAt(0).toUpperCase()+k.slice(1);
+const sportLabel = k => (SPORTS[k]||[label(k)])[0], name = k => esc(sportLabel(k)), col = k => `var(${(SPORTS[k]||[0,"--c-autre"])[1]})`;
+// Nom lu dans un fichier → sport existant (sans tenir compte des accents ni des majuscules), sinon clé d'un nouveau sport
+const sportKey = t => { const n = norm(t); return Object.keys(SPORTS).find(k=>norm(k)===n) || String(t??"").trim().toLowerCase().replace(/\s+/g," ") || "autre"; };
+function syncSports(){
+  const S = Object.assign(Object.create(null), BASE);
+  for(const o of seances) if(!S[o.sport]) S[o.sport] = [label(o.sport),"--c-autre"]; // les sports créés partagent le gris « autres »
+  const changed = Object.keys(S).join("\n") !== Object.keys(SPORTS).join("\n"); SPORTS = S;
+  if(!changed) return;
+  const opts = Object.keys(S).map(k=>`<option value="${esc(k)}">${name(k)}</option>`).join("");
+  const fill = (el,html) => { const v = el.value; el.innerHTML = html; el.value = S[v] ? v : el.options[0].value; }; // garde le choix en cours
+  fill($("fSport"), `<option value="">Tous les sports</option>`+opts); fill($("add").elements.sport, opts);
+}
 const load = () => { try {
     const a = JSON.parse(localStorage.getItem(KEY)); if(Array.isArray(a)) return a;
     const p = JSON.parse(localStorage.getItem(OLD)); // séances saisies avec l'ancienne version de la page
@@ -111,10 +129,11 @@ const load = () => { try {
   } catch { return []; } };
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(seances)); return true; } catch { return false; } };
 const parseDur = d => { const p = String(d).split(":").map(Number); return p.length===3 ? p[0]*3600+p[1]*60+p[2] : p[0]*60+(p[1]||0); };
-const toObj = o => ({id:o.id,date:o.date,sport:o.sport,sec:parseDur(o.duree),dist:o.distance||0,dplus:o.dplus||0,title:o.seance||"",comment:o.commentaire||"",place:o.lieu||"",y:+o.date.slice(0,4),m:+o.date.slice(5,7)-1});
+const toObj = o => ({id:o.id,date:o.date,sport:o.sport,sec:parseDur(o.duree),dist:o.distance||0,dplus:o.dplus||0,title:o.seance||"",comment:o.commentaire||"",place:o.lieu||"",y:+o.date.slice(0,4),m:+o.date.slice(5,7)-1,parts:(o.parts||[]).length});
 let seances = load().map((o,i)=>o.id?o:{...o,id:"m"+i});
 let all = [], data = [], sort = {k:"date",d:-1}, metric = "h"; // all : toutes les séances ; data : celles de l'année affichée
 let year = null;  // onglet d'année : "" = toutes les années, sinon l'année, null = pas encore choisi (dernière année qui a des séances)
+const picked = new Set(); // identifiants des séances cochées dans la liste (pour les fusionner)
 let month = null; // sous-onglet : "" = toute l'année, 0 à 11 = un mois, null = pas encore choisi (dernier mois qui a des séances)
 
 const hms = s => { s=Math.round(s); return `${Math.floor(s/3600)}h${String(Math.floor(s%3600/60)).padStart(2,"0")}`; };
@@ -138,6 +157,7 @@ function years(){
   document.querySelectorAll("[data-y]").forEach(b=>b.onclick=()=>{ year = b.dataset.y==="" ? "" : +b.dataset.y; month = null; render(); document.querySelector(`[data-y="${year}"]`).focus(); });
 }
 function render(){
+  syncSports();
   all = seances.map(toObj);
   if(year===null) year = all.length ? all.reduce((m,s)=>Math.max(m,s.y),0) : new Date().getFullYear();
   data = year==="" ? all : all.filter(s=>s.y===year);
@@ -150,7 +170,7 @@ function render(){
   $("sub").textContent = `${data.length} séance${data.length>1?"s":""} enregistrée${data.length>1?"s":""} · ${(n=>`${n} jour${n>1?"s":""} actif${n>1?"s":""}`)(new Set(data.map(s=>s.date)).size)}`;
   $("kpis").innerHTML = [
     [hms(sum(data,s=>s.sec)),"d'entraînement"],
-    [Math.round(sum(data.filter(s=>s.sport!=="natation"),s=>s.dist||0)).toLocaleString("fr-FR")+" km","course, trail et vélo"],
+    [Math.round(sum(data.filter(s=>s.sport!=="natation"),s=>s.dist||0)).toLocaleString("fr-FR")+" km","parcourus, hors natation"],
     [Math.round(sum(data,s=>s.dplus||0)).toLocaleString("fr-FR")+" m","de dénivelé positif"],
     [Math.round(sum(data.filter(s=>s.sport==="natation"),s=>s.dist)/100)/10+" km","de natation"]
   ].map(k=>`<div class="kpi"><b>${k[0]}</b><span>${k[1]}</span></div>`).join("");
@@ -160,7 +180,10 @@ function render(){
 function chart(){
   $("metric").innerHTML = [["h","Heures"],["km","Kilomètres"],["d","D+ (m)"]].map(m=>`<button class="chip ${metric===m[0]?"on":""}" data-m="${m[0]}">${m[1]}</button>`).join("");
   const val = s => metric==="h"?s.sec/3600:metric==="km"?km(s):(s.dplus||0);
-  const used = Object.keys(SPORTS).filter(k=>data.some(s=>s.sport===k&&val(s)>0));
+  // Une couleur par sport principal ; les sports en gris (ski rando, randonnée, sports créés) forment une seule série « Autres sports ».
+  const live = Object.keys(SPORTS).filter(k=>data.some(s=>s.sport===k&&val(s)>0)), grey = k => SPORTS[k][1]==="--c-autre", rest = live.filter(grey);
+  const series = live.filter(k=>!grey(k)).map(k=>({l:name(k),c:col(k),has:s=>s.sport===k}));
+  if(rest.length) series.push({l:rest.length===1 ? name(rest[0]) : `Autres sports (${rest.slice(0,3).map(name).join(", ")}${rest.length>3?"…":""})`, c:"var(--c-autre)", has:s=>rest.includes(s.sport)});
   const y0 = data.reduce((m,s)=>Math.min(m,s.y),9999), y1 = data.reduce((m,s)=>Math.max(m,s.y),0);
   const B = year==="" ? Array.from({length:Math.max(0,y1-y0+1)},(_,i)=>({short:String(y0+i),long:String(y0+i),a:data.filter(s=>s.y===y0+i)}))
                       : MONTHS.map((m,i)=>({short:MSHORT[i],long:m,a:data.filter(s=>s.m===i)}));
@@ -169,16 +192,16 @@ function chart(){
   let g = "";
   B.forEach(({short,long:mn,a},i)=>{
     let y = H-b; const x = 40+i*step+(step-bw)/2;
-    used.forEach(k=>{
-      const v = sum(a.filter(s=>s.sport===k),val), h = v/max*(H-b-t);
-      if(h>0){ y-=h; g+=`<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${col(k)}"><title>${mn} · ${name(k)} : ${v.toFixed(1)}</title></rect>`; }
+    series.forEach(({l,c,has})=>{
+      const v = sum(a.filter(has),val), h = v/max*(H-b-t);
+      if(h>0){ y-=h; g+=`<rect x="${x}" y="${y}" width="${bw}" height="${h}" fill="${c}"><title>${mn} · ${l} : ${v.toFixed(1)}</title></rect>`; }
     });
     if(tot[i]>0) g+=`<text x="${x+bw/2}" y="${y-4}" text-anchor="middle">${Math.round(tot[i]*(metric==="h"?10:1))/(metric==="h"?10:1)}</text>`;
     g+=`<text x="${x+bw/2}" y="${H-8}" text-anchor="middle">${short}</text>`;
   });
   g+=`<line x1="36" x2="${W}" y1="${H-b}" y2="${H-b}" stroke="var(--line)"/>`;
   $("chart").innerHTML = g;
-  $("legend").innerHTML = used.map(k=>`<span><i class="dot" style="background:${col(k)}"></i>${name(k)}</span>`).join("");
+  $("legend").innerHTML = series.map(({l,c})=>`<span><i class="dot" style="background:${c}"></i>${l}</span>`).join("");
   document.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{metric=b.dataset.m;chart();});
 }
 
@@ -221,28 +244,49 @@ function table(full){
   a.sort((x,y)=>(f(x)>f(y)?1:f(x)<f(y)?-1:0)*sort.d);
   $("count").textContent = `${a.length} séance${a.length>1?"s":""} · ${hms(sum(a,s=>s.sec))} · ${Math.round(sum(a,s=>s.sport==="natation"?0:s.dist||0))} km`;
   const th = (k,l,n)=>`<th class="${n?"n":""}" data-k="${k}" tabindex="0">${l}${sort.k===k?(sort.d>0?" ▲":" ▼"):""}</th>`;
-  $("tbl").innerHTML = `<tr>${th("date","Date")}${th("sport","Sport")}${th("sec","Durée",1)}${th("dist","Distance",1)}${th("dplus","D+",1)}<th class="n">Allure</th><th>Séance</th><th>Lieu</th><th></th></tr>`+
-    (a.length ? "" : `<tr><td colspan="9" class="cm">${!all.length ? "Aucune séance pour l'instant : ajoutez-en une ci-dessous." : fs || q ? "Aucune séance ne correspond à ces filtres." : `Aucune séance en ${month==="" ? "" : MONTHS[month].toLowerCase()+" "}${year}.`}</td></tr>`)+
-    (full===true ? a : a.slice(0,MAXROWS)).map(s=>`<tr><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${esc(s.title)}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td><td><button data-e="${esc(s.id)}" aria-label="Modifier cette séance">✎</button></td></tr>`).join("")+
-    (full!==true && a.length>MAXROWS ? `<tr><td colspan="9"><button id="more">Afficher les ${a.length-MAXROWS} séances suivantes</button></td></tr>` : "");
+  const shown = full===true ? a : a.slice(0,MAXROWS), ids = new Set(shown.map(s=>s.id));
+  picked.forEach(id=>ids.has(id) || picked.delete(id)); // une séance qui n'est plus affichée n'est plus cochée
+  $("tbl").innerHTML = `<tr><th></th>${th("date","Date")}${th("sport","Sport")}${th("sec","Durée",1)}${th("dist","Distance",1)}${th("dplus","D+",1)}<th class="n">Allure</th><th>Séance</th><th>Lieu</th><th></th></tr>`+
+    (a.length ? "" : `<tr><td colspan="10" class="cm">${!all.length ? "Aucune séance pour l'instant : ajoutez-en une ci-dessous." : fs || q ? "Aucune séance ne correspond à ces filtres." : `Aucune séance en ${month==="" ? "" : MONTHS[month].toLowerCase()+" "}${year}.`}</td></tr>`)+
+    shown.map(s=>`<tr><td><input type="checkbox" data-s="${esc(s.id)}"${picked.has(s.id)?" checked":""} aria-label="Cocher cette séance pour la fusionner"></td><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${esc(s.title)}${s.parts?`<span class="cm">${s.title?" · ":""}fusion de ${s.parts} séances</span>`:""}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td><td><button data-e="${esc(s.id)}" aria-label="Modifier cette séance">✎</button></td></tr>`).join("")+
+    (full!==true && a.length>MAXROWS ? `<tr><td colspan="10"><button id="more">Afficher les ${a.length-MAXROWS} séances suivantes</button></td></tr>` : "");
   if($("more")) $("more").onclick = () => table(true);
+  document.querySelectorAll("[data-s]").forEach(c=>c.onchange=()=>{ c.checked ? picked.add(c.dataset.s) : picked.delete(c.dataset.s); $("lmsg").textContent = ""; mergeBtn(); });
+  mergeBtn();
   document.querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>edit(b.dataset.e));
   document.querySelectorAll("th[data-k]").forEach(h=>{const go=()=>{sort={k:h.dataset.k,d:sort.k===h.dataset.k?-sort.d:-1};table();};h.onclick=go;h.onkeydown=e=>e.key==="Enter"&&go();});
 }
+// ---- Fusion de séances (activité coupée en deux par erreur sur la montre, par exemple) ----
+// La séance fusionnée additionne durées, distances et dénivelés. Elle garde ses séances d'origine dans « parts » :
+// on peut ainsi la séparer à nouveau, et un réimport du même fichier ne recrée pas les morceaux.
+function mergeBtn(){ const n = picked.size, b = $("merge"); b.disabled = n<2; b.textContent = n<2 ? "Fusionner" : `Fusionner les ${n} séances cochées`; }
+$("merge").onclick = () => {
+  const sel = seances.filter(o=>picked.has(o.id)).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0); if(sel.length<2) return;
+  const main = sel.reduce((a,o)=>parseDur(o.duree)>parseDur(a.duree)?o:a), sport = main.sport, total = sum(sel,kmOf); // sport : celui de la plus longue
+  const uniq = f => [...new Set(sel.map(o=>(o[f]||"").trim()).filter(Boolean))];
+  const o = {id:Date.now().toString(36)+Math.random().toString(36).slice(2,5), date:sel[0].date, sport, duree:fmtDur(sum(sel,x=>parseDur(x.duree))),
+    distance:Math.round((sport==="natation" ? total*1000 : total)*100)/100, dplus:sum(sel,x=>x.dplus||0), seance:uniq("seance").join(" + "), commentaire:uniq("commentaire").join(" · "), lieu:uniq("lieu")[0]||"",
+    parts:sel.flatMap(x=>x.parts||[(({id,parts,...r})=>r)(x)])};
+  const v = toObj(o), mixed = new Set(sel.map(x=>x.sport)).size>1, days = new Set(sel.map(x=>x.date)).size>1;
+  if(!confirm(`Fusionner ces ${sel.length} séances en une seule ?\n\n${fdate(o.date)} · ${sportLabel(sport)} · ${hms(v.sec)}${v.dist?` · ${v.dist} ${sport==="natation"?"m":"km"}`:""}${v.dplus?` · D+ ${v.dplus} m`:""}`
+    + (mixed ? `\n\nLes sports diffèrent : la séance sera classée en ${sportLabel(sport)}, le sport de la plus longue.` : "") + (days ? "\n\nLes dates diffèrent : la séance portera la date la plus ancienne." : "")
+    + "\n\nPour revenir en arrière, ouvrez la séance fusionnée avec ✎ puis « Séparer ».")) return;
+  seances = seances.filter(x=>!picked.has(x.id)); seances.push(o); picked.clear(); if(editing) resetForm();
+  const saved = save(); render(); $("lmsg").textContent = `${sel.length} séances fusionnées.` + (saved ? "" : NOSAVE);
+};
 const esc = t => String(t||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-$("fSport").innerHTML = `<option value="">Tous les sports</option>`+Object.keys(SPORTS).map(k=>`<option value="${k}">${name(k)}</option>`).join("");
 $("fSport").onchange = table; $("fText").oninput = table;
 
 const say = m => $("msg").textContent = m;
 const NOSAVE = " Attention : ce navigateur bloque l'enregistrement local, les changements seront perdus à la fermeture de la page.";
 const form = $("add"), sportSel = form.elements.sport;
-sportSel.innerHTML = Object.keys(SPORTS).map(k=>`<option value="${k}">${name(k)}</option>`).join("");
 sportSel.onchange = () => form.elements.distance.placeholder = sportSel.value==="natation" ? "Distance (m)" : "Distance (km)";
 form.elements.date.value = new Date().toISOString().slice(0,10);
 
 let editing = null;
-const setMode = id => { editing = id; $("mode").hidden = !id; $("ok").textContent = id ? "Mettre à jour" : "Ajouter"; $("del").hidden = $("cancel").hidden = !id; };
+const setMode = id => { editing = id; $("mode").hidden = !id; $("ok").textContent = id ? "Mettre à jour" : "Ajouter"; $("del").hidden = $("cancel").hidden = !id;
+  const n = ((seances.find(o=>o.id===id)||{}).parts||[]).length; $("split").hidden = !n; $("split").textContent = `Séparer en ${n} séances`; };
 const resetForm = d => { form.reset(); form.elements.date.value = d || new Date().toISOString().slice(0,10); sportSel.onchange(); setMode(null); };
 function edit(id){
   const s = seances.find(o=>o.id===id); if(!s) return;
@@ -252,12 +296,17 @@ function edit(id){
   $("addbox").open = true; $("addbox").scrollIntoView({behavior:"smooth"});
 }
 $("cancel").onclick = () => resetForm();
+$("split").onclick = () => {
+  const s = seances.find(o=>o.id===editing); if(!s || !s.parts || !confirm(`Séparer cette séance et retrouver les ${s.parts.length} séances d'origine ?`)) return;
+  seances = seances.filter(o=>o.id!==s.id).concat(s.parts.map((p,i)=>({id:Date.now().toString(36)+"s"+i, ...p})));
+  say(`Séance séparée en ${s.parts.length}.` + (save() ? "" : NOSAVE)); resetForm(); render();
+};
 form.onsubmit = e => {
   e.preventDefault(); const f = Object.fromEntries(new FormData(form));
   const id = editing || Date.now().toString(36)+Math.random().toString(36).slice(2,5);
   const o = {id,date:f.date,sport:f.sport,duree:f.duree,distance:+f.distance||0,dplus:+f.dplus||0,seance:f.seance.trim(),commentaire:f.commentaire.trim(),lieu:f.lieu.trim()};
   const i = seances.findIndex(x=>x.id===id);
-  if(i>=0) seances[i] = o; else seances.push(o);
+  if(i>=0) seances[i] = seances[i].parts ? {...o, parts:seances[i].parts} : o; else seances.push(o);
   say((editing ? "Séance modifiée." : "Séance ajoutée.") + (save() ? "" : NOSAVE)); resetForm(f.date); year = +f.date.slice(0,4); month = +f.date.slice(5,7)-1; render();
 };
 $("del").onclick = () => {
@@ -270,8 +319,6 @@ $("del").onclick = () => {
 // Excel : un onglet par mois, une ligne d'en-têtes « date, sport, temps, distance, denivelé, vitesse moy, séance, commentaire, lieu »,
 //   puis une ligne par séance. Les tableaux de totaux sous les séances et les onglets sans ces en-têtes (TOTAL, Record) sont ignorés.
 // Garmin : colonnes « Type d'activité, Date, Titre, Distance, Durée, Ascension totale » (les autres colonnes ne sont pas lues).
-const norm = t => String(t??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/\s+/g," ").trim();
-const SPORT_OF = Object.fromEntries(Object.keys(SPORTS).map(k=>[norm(k),k]));
 const fmtDur = sec => `${Math.floor(sec/3600)}:${String(Math.floor(sec%3600/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`;
 const kmOf = o => o.sport==="natation" ? (o.distance||0)/1000 : (o.distance||0);
 // Même séance : même jour et, pour un même sport, durée (à 30 s près) ou distance (à 50 m près) identique ; les deux si le sport diffère.
@@ -316,7 +363,7 @@ const xlDate = (v,d1904) => { let m;
   return null; };
 const num = v => typeof v==="number" ? v : parseFloat(String(v??"").replace(",",".")) || 0;
 function fromXlsx({sheets,d1904}){
-  const list = [], unknown = new Set(); let bad = 0, found = false;
+  const list = []; let bad = 0, found = false;
   for(const sh of sheets){
     const hi = sh.rows.slice(0,15).findIndex(r=>{ const h = r.map(norm); return ["date","sport","seance"].every(x=>h.includes(x)) && h.some(x=>x==="temps"||x==="duree"); });
     if(hi<0) continue;
@@ -329,12 +376,12 @@ function fromXlsx({sheets,d1904}){
       const sp = txt(r,cS), t = r[cT], sec = typeof t==="number" ? Math.round(t*86400) : /^\d+:\d\d/.test(String(t??"").trim()) ? parseDur(String(t).trim()) : 0;
       if(!sp && !sec) continue;
       if(!sec){ bad++; continue; }
-      const sport = SPORT_OF[norm(sp)]; if(!sport){ unknown.add(sp||"(vide)"); continue; }
+      const sport = sportKey(sp);
       list.push({date, sport, duree:fmtDur(sec), distance:Math.round(num(get(r,cK))*100)/100, dplus:Math.round(num(get(r,cE))), seance:txt(r,cN), commentaire:txt(r,cC), lieu:txt(r,cL)});
     }
   }
   if(!found) throw new Error("inconnu");
-  return {list,unknown,bad};
+  return {list,bad};
 }
 const parseCSV = (txt,sep) => { const rows = []; let r = [], f = "", q = false;
   for(let i=0;i<txt.length;i++){ const c = txt[i];
@@ -344,9 +391,10 @@ const parseCSV = (txt,sep) => { const rows = []; let r = [], f = "", q = false;
     else if(c==="\n"||c==="\r"){ if(c==="\r"&&txt[i+1]==="\n") i++; r.push(f); f=""; rows.push(r); r=[]; }
     else f+=c; }
   if(f||r.length){ r.push(f); rows.push(r); } return rows.filter(x=>x.join("").trim()); };
-// Type d'activité Garmin (français ou anglais) → sport de cette page. L'ordre compte : le premier motif trouvé gagne.
+// Type d'activité Garmin (français ou anglais) → sport de base. L'ordre compte : le premier motif trouvé gagne.
+// Un type sans correspondance (yoga, marche, ski alpin…) devient un nouveau sport qui porte son nom.
 const GARMIN = [[/trail|ultra/,"trail"],[/ski.*(rando|hors|backcountry|alpinisme)/,"ski rando"],[/ski/,null],[/vtt|mountain/,"vtt"],[/cycl|velo|bik|ride/,"velo route"],
-  [/natation|nat\.|swim/,"natation"],[/muscu|renfo|force|strength|hiit/,"renfo"],[/rando|marche|hik|walk/,"randonnée"],[/course|run|tapis/,"course route"]];
+  [/natation|nat\.|swim/,"natation"],[/muscu|renfo|force|strength|hiit/,"renfo"],[/rando|hik/,"randonnée"],[/course|run|tapis/,"course route"]];
 function fromGarmin(text){
   const first = text.split("\n")[0], sep = first.split(";").length > first.split(",").length ? ";" : ",", rows = parseCSV(text,sep), H = (rows[0]||[]).map(norm);
   const col = (...a) => H.findIndex(h=>a.some(x=>h===x||h.startsWith(x)));
@@ -354,18 +402,18 @@ function fromGarmin(text){
   if(cT<0 || cD<0 || cM<0) throw new Error("inconnu");
   // Garmin écrit « 2,564 » pour 2564 et « 50.64 » pour 50,64 ; avec le séparateur « ; » la virgule est la décimale.
   const gnum = v => { let x = String(v??"").replace(/\s/g,""); x = sep===";" ? x.replace(/\./g,"").replace(",",".") : /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(x) ? x.replace(/,/g,"") : x.replace(",","."); return parseFloat(x) || 0; };
-  const list = [], unknown = new Set(); let bad = 0;
+  const list = []; let bad = 0;
   for(const r of rows.slice(1)){
     const type = (r[cT]||"").trim(), m = (r[cD]||"").trim().match(/^(\d{4})-(\d\d)-(\d\d)|^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if(!m) continue;
     const date = m[1] ? `${m[1]}-${m[2]}-${m[3]}` : `${m[6]}-${m[5].padStart(2,"0")}-${m[4].padStart(2,"0")}`;
     const p = (r[cM]||"").trim().split(":").map(Number), sec = p.some(isNaN) ? 0 : Math.round(p.length===3 ? p[0]*3600+p[1]*60+p[2] : p.length===2 ? p[0]*60+p[1] : 0);
     if(!sec){ bad++; continue; }
-    const nt = norm(type), sport = (GARMIN.find(g=>g[0].test(nt))||[])[1]; if(!sport){ unknown.add(type||"(vide)"); continue; }
+    const nt = norm(type), sport = (GARMIN.find(g=>g[0].test(nt))||[])[1] || sportKey(type);
     let distance = cK<0 ? 0 : gnum(r[cK]); if(sport==="natation" && distance<50) distance *= 1000; // la page compte la natation en mètres
     const title = (cN<0 ? "" : r[cN]||"").trim(), auto = type && norm(title).endsWith(nt); // titre par défaut de Garmin : « Ville Type d'activité »
     list.push({date, sport, duree:fmtDur(sec), distance:Math.round(distance*100)/100, dplus:cE<0 ? 0 : Math.round(gnum(r[cE])), seance:auto ? "" : title, commentaire:"", lieu:auto ? title.slice(0,title.length-type.length).trim() : ""});
   }
-  return {list,unknown,bad};
+  return {list,bad};
 }
 $("imp").onchange = async e => {
   const file = e.target.files[0]; if(!file) return;
@@ -378,15 +426,16 @@ $("imp").onchange = async e => {
       let t = new TextDecoder().decode(u8); if(t.includes("\ufffd")) t = new TextDecoder("windows-1252").decode(u8);
       res = fromGarmin(t.replace(/^\ufeff/,""));
     }
-    const pool = seances.slice(); let added = 0, dup = 0, n = 0;
+    const pool = seances.flatMap(x=>[x, ...(x.parts||[])]), created = new Set(); let added = 0, dup = 0, n = 0;
     for(const o of res.list){
       const k = pool.findIndex(x=>same(x,o));
       if(k>=0){ pool.splice(k,1); dup++; continue; }
+      if(!SPORTS[o.sport]) created.add(label(o.sport));
       seances.push({id:"x"+Date.now().toString(36)+(n++), ...o}); added++;
     }
     const pl = (k,a,b) => `${k} ${k>1?b:a}`;
     say(`${pl(added,"séance importée","séances importées")}, ${pl(dup,"déjà présente","déjà présentes")}.`
-      + (res.unknown.size ? ` Sports non reconnus, lignes ignorées : ${[...res.unknown].join(", ")}.` : "")
+      + (created.size ? ` ${created.size>1 ? "Nouveaux sports créés" : "Nouveau sport créé"} : ${[...created].join(", ")}.` : "")
       + (res.bad ? ` ${pl(res.bad,"ligne ignorée car sans durée","lignes ignorées car sans durée")}.` : "")
       + (added && !save() ? NOSAVE : ""));
     if(added){ year = month = null; render(); }
