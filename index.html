@@ -35,7 +35,6 @@ svg text{fill:var(--mute);font-size:11px}
 form{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
 details summary{cursor:pointer;font:600 18px Georgia,serif}
 .rec li{margin:4px 0}
-details details{margin-top:8px}
 [hidden]{display:none!important}
 td button{padding:1px 8px}
 </style>
@@ -70,7 +69,7 @@ td button{padding:1px 8px}
 
 <div class="card">
   <details id="addbox">
-    <summary>Ajouter ou modifier une séance</summary>
+    <summary>Ajouter, modifier ou importer des séances</summary>
     <p class="cm" id="mode" style="margin:12px 0 0" hidden></p>
     <form id="add" style="margin-top:12px">
       <input type="date" name="date" required aria-label="Date">
@@ -84,44 +83,31 @@ td button{padding:1px 8px}
       <button id="ok">Ajouter</button><button type="button" id="del" hidden>Supprimer</button><button type="button" id="cancel" hidden>Annuler</button>
     </form>
     <div class="bar" style="margin-top:12px">
-      <label class="cm">Importer un export Strava (activities.csv), séances à partir du <input type="date" id="since" value="2026-01-01"></label>
-      <input type="file" id="csv" accept=".csv,text/csv" aria-label="Fichier activities.csv">
+      <label class="cm" for="xlsx">Compléter depuis un calendrier Excel (.xlsx, un onglet par mois)</label>
+      <input type="file" id="xlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
     </div>
-    <p class="cm" id="pend" style="margin:12px 0 4px"></p>
-    <div class="bar">
-      <button id="gh">Enregistrer dans GitHub</button>
-      <button id="exp">Télécharger seances.json</button>
-      <button id="reset">Annuler les modifications en attente</button>
-    </div>
+    <p class="cm" style="margin:12px 0 4px">Les séances sont enregistrées dans ce navigateur. L'import ajoute les séances absentes, sans toucher à celles déjà présentes.</p>
     <p class="cm" id="msg" role="status"></p>
-    <details>
-      <summary style="font-size:15px">Connexion GitHub</summary>
-      <p class="cm">Créez un jeton « fine-grained » limité à ce dépôt, avec le droit <i>Contents : lecture et écriture</i>. Il reste dans ce navigateur uniquement (jamais dans le dépôt).</p>
-      <form id="cfg">
-        <input name="repo" placeholder="utilisateur/depot">
-        <input name="branch" placeholder="Branche (main)">
-        <input name="path" placeholder="Fichier (seances.json)">
-        <input name="token" type="password" placeholder="Jeton d'accès" autocomplete="off">
-      </form>
-    </details>
   </details>
 </div>
 </main>
 
 <script>
-// Les séances sont dans seances.json (distance en km, sauf natation en mètres)
-let BASE = [];
+// Les séances sont enregistrées dans ce navigateur (localStorage). Distance en km, sauf natation en mètres.
 const SPORTS = {"course route":["Course route","--c-route"],"trail":["Trail","--c-trail"],"velo route":["Vélo route","--c-velo"],"vtt":["VTT","--c-vtt"],"natation":["Natation","--c-nat"],"renfo":["Renfo","--c-renfo"],"ski rando":["Ski rando","--c-autre"],"randonnée":["Randonnée","--c-autre"]};
 const MONTHS = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
-const KEY = "suivi-2026-modifs";
-const hash = o => { let h = 5381; for(const c of [o.date,o.sport,o.duree,o.distance,o.seance,o.lieu].join("|")) h = (h*33 ^ c.charCodeAt(0)) >>> 0; return "h"+h.toString(36); };
-const idOf = o => o.id || hash(o), withId = o => ({id:idOf(o),...o});
-const EMPTY = () => ({up:{},del:[]});
-const load = () => { try { const p = JSON.parse(localStorage.getItem(KEY)); return {up:p.up||{},del:p.del||[]}; } catch { return EMPTY(); } };
-const save = p => { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch {} };
-const apply = (base,p) => { const ids = new Set(base.map(idOf)); return base.filter(o=>!p.del.includes(idOf(o))).map(o=>p.up[idOf(o)]||o).concat(Object.values(p.up).filter(o=>!ids.has(o.id))); };
+const KEY = "suivi-2026-seances", OLD = "suivi-2026-modifs";
+const $ = id => document.getElementById(id);
+const name = k => (SPORTS[k]||[k])[0], col = k => `var(${(SPORTS[k]||[0,"--c-autre"])[1]})`;
+const load = () => { try {
+    const a = JSON.parse(localStorage.getItem(KEY)); if(Array.isArray(a)) return a;
+    const p = JSON.parse(localStorage.getItem(OLD)); // séances saisies avec l'ancienne version de la page
+    return p && p.up ? Object.values(p.up) : [];
+  } catch { return []; } };
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(seances)); return true; } catch { return false; } };
 const parseDur = d => { const p = String(d).split(":").map(Number); return p.length===3 ? p[0]*3600+p[1]*60+p[2] : p[0]*60+(p[1]||0); };
-const toObj = o => ({date:o.date,sport:o.sport,sec:parseDur(o.duree),dist:o.distance||0,dplus:o.dplus||0,title:o.seance||"",comment:o.commentaire||"",place:o.lieu||"",m:+o.date.slice(5,7)-1});
+const toObj = o => ({id:o.id,date:o.date,sport:o.sport,sec:parseDur(o.duree),dist:o.distance||0,dplus:o.dplus||0,title:o.seance||"",comment:o.commentaire||"",place:o.lieu||"",m:+o.date.slice(5,7)-1});
+let seances = load().map((o,i)=>o.id?o:{...o,id:"m"+i});
 let data = [], sort = {k:"date",d:-1}, metric = "h";
 
 const hms = s => { s=Math.round(s); return `${Math.floor(s/3600)}h${String(Math.floor(s%3600/60)).padStart(2,"0")}`; };
@@ -138,11 +124,8 @@ const fdate = d => new Date(d+"T12:00").toLocaleDateString("fr-FR",{day:"numeric
 const sum = (a,f) => a.reduce((t,x)=>t+f(x),0);
 
 function render(){
-  const p = load(), ch = new Set(Object.keys(p.up)), n = ch.size + p.del.length;
-  data = apply(BASE,p).map(o=>({...toObj(o),id:idOf(o),pending:ch.has(idOf(o))}));
-  $("pend").textContent = n ? `${n} modification${n>1?"s":""} en attente d'enregistrement` : "Aucune modification en attente";
-  const done = data.filter(s=>s.sport!=="renfo");
-  $("sub").textContent = `${data.length} séances enregistrées · ${new Set(data.map(s=>s.date)).size} jours actifs`;
+  data = seances.map(toObj);
+  $("sub").textContent = `${data.length} séance${data.length>1?"s":""} enregistrée${data.length>1?"s":""} · ${(n=>`${n} jour${n>1?"s":""} actif${n>1?"s":""}`)(new Set(data.map(s=>s.date)).size)}`;
   $("kpis").innerHTML = [
     [hms(sum(data,s=>s.sec)),"d'entraînement"],
     [Math.round(sum(data.filter(s=>s.sport!=="natation"),s=>s.dist||0)).toLocaleString("fr-FR")+" km","course, trail et vélo"],
@@ -187,7 +170,7 @@ function bySport(){
 function records(){
   const best = (f,flt=()=>true) => data.filter(flt).reduce((a,s)=>!a||f(s)>f(a)?s:a,null);
   const out = [];
-  const add = (label,s,v) => s&&out.push(`<li><b>${label}</b> : ${v} — ${s.title||name(s.sport)} (${fdate(s.date)}${s.place?", "+s.place:""})</li>`);
+  const add = (label,s,v) => s&&out.push(`<li><b>${label}</b> : ${v} — ${esc(s.title)||name(s.sport)} (${fdate(s.date)}${s.place?", "+esc(s.place):""})</li>`);
   let s = best(s=>s.dist,s=>s.sport==="trail"); add("Plus longue sortie trail",s,s&&s.dist+" km");
   s = best(s=>s.dplus||0); add("Plus gros dénivelé",s,s&&s.dplus.toLocaleString("fr-FR")+" m");
   s = best(s=>s.dist,s=>s.sport==="course route"); add("Plus longue course route",s,s&&s.dist+" km");
@@ -206,7 +189,8 @@ function table(){
   $("count").textContent = `${a.length} séance${a.length>1?"s":""} · ${hms(sum(a,s=>s.sec))} · ${Math.round(sum(a,s=>s.sport==="natation"?0:s.dist||0))} km`;
   const th = (k,l,n)=>`<th class="${n?"n":""}" data-k="${k}" tabindex="0">${l}${sort.k===k?(sort.d>0?" ▲":" ▼"):""}</th>`;
   $("tbl").innerHTML = `<tr>${th("date","Date")}${th("sport","Sport")}${th("sec","Durée",1)}${th("dist","Distance",1)}${th("dplus","D+",1)}<th class="n">Allure</th><th>Séance</th><th>Lieu</th><th></th></tr>`+
-    a.map(s=>`<tr><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${esc(s.title)}${s.pending?'<b class="cm"> • en attente</b>':""}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td><td><button data-e="${s.id}" aria-label="Modifier cette séance">✎</button></td></tr>`).join("");
+    (a.length ? "" : `<tr><td colspan="9" class="cm">${data.length ? "Aucune séance ne correspond à ces filtres." : "Aucune séance pour l'instant : ajoutez-en une ci-dessous."}</td></tr>`)+
+    a.map(s=>`<tr><td>${fdate(s.date)}</td><td><i class="dot" style="background:${col(s.sport)}"></i>${name(s.sport)}</td><td class="n">${hms(s.sec)}</td><td class="n">${s.dist?(s.sport==="natation"?s.dist+" m":s.dist+" km"):""}</td><td class="n">${s.dplus||""}</td><td class="n">${pace(s)}</td><td class="t">${esc(s.title)}${s.comment?`<div class="cm">${esc(s.comment)}</div>`:""}</td><td>${esc(s.place)}</td><td><button data-e="${esc(s.id)}" aria-label="Modifier cette séance">✎</button></td></tr>`).join("");
   document.querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>edit(b.dataset.e));
   document.querySelectorAll("th[data-k]").forEach(h=>{const go=()=>{sort={k:h.dataset.k,d:sort.k===h.dataset.k?-sort.d:-1};table();};h.onclick=go;h.onkeydown=e=>e.key==="Enter"&&go();});
 }
@@ -214,27 +198,20 @@ const esc = t => String(t||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">"
 
 $("fMonth").innerHTML = `<option value="">Tous les mois</option>`+MONTHS.map((m,i)=>`<option value="${i}">${m}</option>`).join("");
 $("fSport").innerHTML = `<option value="">Tous les sports</option>`+Object.keys(SPORTS).map(k=>`<option value="${k}">${name(k)}</option>`).join("");
-document.querySelector("#add [name=sport]").innerHTML = Object.keys(SPORTS).map(k=>`<option value="${k}">${name(k)}</option>`).join("");
 ["fMonth","fSport"].forEach(i=>$(i).onchange=table); $("fText").oninput=table;
 
-const CFG = "suivi-2026-github", say = m => $("msg").textContent = m;
-const cfg = () => { try { return JSON.parse(localStorage.getItem(CFG)) || {}; } catch { return {}; } };
-const toJson = a => "[\n" + a.map(o=>JSON.stringify(o)).join(",\n") + "\n]\n";
-const byDate = a => a.slice().sort((x,y)=>x.date<y.date?-1:x.date>y.date?1:0);
-const b64 = s => btoa(unescape(encodeURIComponent(s))), unb64 = s => decodeURIComponent(escape(atob(s.replace(/\n/g,""))));
-
+const say = m => $("msg").textContent = m;
+const NOSAVE = " Attention : ce navigateur bloque l'enregistrement local, les changements seront perdus à la fermeture de la page.";
 const form = $("add"), sportSel = form.elements.sport;
 sportSel.innerHTML = Object.keys(SPORTS).map(k=>`<option value="${k}">${name(k)}</option>`).join("");
 sportSel.onchange = () => form.elements.distance.placeholder = sportSel.value==="natation" ? "Distance (m)" : "Distance (km)";
 form.elements.date.value = new Date().toISOString().slice(0,10);
-const c0 = cfg(); Object.keys(c0).forEach(k => { const el = $("cfg").elements[k]; if(el) el.value = c0[k]; });
-$("cfg").oninput = () => { try { localStorage.setItem(CFG, JSON.stringify(Object.fromEntries(new FormData($("cfg"))))); } catch {} };
 
 let editing = null;
 const setMode = id => { editing = id; $("mode").hidden = !id; $("ok").textContent = id ? "Mettre à jour" : "Ajouter"; $("del").hidden = $("cancel").hidden = !id; };
 const resetForm = d => { form.reset(); form.elements.date.value = d || new Date().toISOString().slice(0,10); sportSel.onchange(); setMode(null); };
 function edit(id){
-  const s = apply(BASE,load()).find(o=>idOf(o)===id); if(!s) return;
+  const s = seances.find(o=>o.id===id); if(!s) return;
   const f = form.elements; f.date.value = s.date; f.sport.value = s.sport; f.duree.value = s.duree; f.distance.value = s.distance||""; f.dplus.value = s.dplus||"";
   f.seance.value = s.seance||""; f.lieu.value = s.lieu||""; f.commentaire.value = s.commentaire||"";
   sportSel.onchange(); setMode(id); $("mode").textContent = `Modification de la séance du ${fdate(s.date)}`;
@@ -242,83 +219,107 @@ function edit(id){
 }
 $("cancel").onclick = () => resetForm();
 form.onsubmit = e => {
-  e.preventDefault(); const f = Object.fromEntries(new FormData(form)), p = load();
+  e.preventDefault(); const f = Object.fromEntries(new FormData(form));
   const id = editing || Date.now().toString(36)+Math.random().toString(36).slice(2,5);
-  p.up[id] = {id,date:f.date,sport:f.sport,duree:f.duree,distance:+f.distance||0,dplus:+f.dplus||0,seance:f.seance.trim(),commentaire:f.commentaire.trim(),lieu:f.lieu.trim()};
-  save(p); say(editing ? "Séance modifiée (en attente d'enregistrement)." : "Séance ajoutée (en attente d'enregistrement)."); resetForm(f.date); render();
+  const o = {id,date:f.date,sport:f.sport,duree:f.duree,distance:+f.distance||0,dplus:+f.dplus||0,seance:f.seance.trim(),commentaire:f.commentaire.trim(),lieu:f.lieu.trim()};
+  const i = seances.findIndex(x=>x.id===id);
+  if(i>=0) seances[i] = o; else seances.push(o);
+  say((editing ? "Séance modifiée." : "Séance ajoutée.") + (save() ? "" : NOSAVE)); resetForm(f.date); render();
 };
 $("del").onclick = () => {
   if(!editing || !confirm("Supprimer cette séance ?")) return;
-  const p = load(); delete p.up[editing]; if(BASE.some(o=>idOf(o)===editing)) p.del.push(editing);
-  save(p); say("Séance supprimée (en attente d'enregistrement)."); resetForm(); render();
+  seances = seances.filter(o=>o.id!==editing);
+  say("Séance supprimée." + (save() ? "" : NOSAVE)); resetForm(); render();
 };
-$("exp").onclick = () => {
-  const l = document.createElement("a"); l.href = URL.createObjectURL(new Blob([toJson(byDate(apply(BASE,load()).map(withId)))],{type:"application/json"}));
-  l.download = "seances.json"; l.click();
-};
-$("reset").onclick = () => { if(confirm("Annuler toutes les modifications en attente ?")){ save(EMPTY()); say(""); resetForm(); render(); } };
-$("gh").onclick = async () => {
-  const c = cfg(), p = load(), n = Object.keys(p.up).length + p.del.length;
-  if(!c.repo || !c.token) return say("Renseignez le dépôt et le jeton dans « Connexion GitHub ».");
-  if(!n) return say("Aucune modification en attente.");
-  const url = `https://api.github.com/repos/${c.repo}/contents/${c.path||"seances.json"}`, br = c.branch||"main";
-  const h = {Authorization:`Bearer ${c.token}`,Accept:"application/vnd.github+json"};
-  say("Enregistrement en cours…");
-  try {
-    const cur = await fetch(`${url}?ref=${encodeURIComponent(br)}`,{headers:h});
-    if(!cur.ok) throw new Error(cur.status===404 ? "dépôt, branche ou fichier introuvable" : cur.status===401 ? "jeton refusé" : "erreur "+cur.status);
-    const j = await cur.json(), all = byDate(apply(JSON.parse(unb64(j.content)).map(withId),p).map(withId));
-    const put = await fetch(url,{method:"PUT",headers:h,body:JSON.stringify({message:`Mise à jour des séances (${n} modification${n>1?"s":""})`,content:b64(toJson(all)),sha:j.sha,branch:br})});
-    if(!put.ok) throw new Error(put.status===403||put.status===404 ? "le jeton n'a pas le droit d'écriture" : put.status===409 ? "le fichier a changé entre-temps, réessayez" : "erreur "+put.status);
-    BASE = all; save(EMPTY()); say(`${n} modification${n>1?"s":""} enregistrée${n>1?"s":""} dans ${c.repo}.`); render();
-  } catch(err) { say("Échec : "+err.message+". Vos modifications restent en attente."); }
-};
-// ---- Import d'un export Strava (activities.csv) ----
-const parseCSV = (txt,sep) => { const rows = []; let r = [], f = "", q = false;
-  for(let i=0;i<txt.length;i++){ const c = txt[i];
-    if(q){ if(c==='"'){ if(txt[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=c; }
-    else if(c==='"') q = true;
-    else if(c===sep){ r.push(f); f=""; }
-    else if(c==="\n"||c==="\r"){ if(c==="\r"&&txt[i+1]==="\n") i++; r.push(f); f=""; rows.push(r); r=[]; }
-    else f+=c; }
-  if(f||r.length){ r.push(f); rows.push(r); } return rows.filter(x=>x.join("").trim()); };
-const TYPES = [["trail run","trail"],["mountain bike","vtt"],["run","course route"],["ride","velo route"],["swim","natation"],["weight","renfo"],["workout","renfo"],["crossfit","renfo"],["backcountry","ski rando"],["ski","ski rando"],["hike","randonnée"],["walk","randonnée"]];
-const MON = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
-const stravaDate = s => { let d = null, m;
-  if(m = s.match(/([A-Za-z]{3})\w*\.? (\d+), (\d{4}),? (\d+):(\d+)(?::(\d+))? ?(AM|PM)?/i)){ let h = m[7] ? +m[4]%12 + (/pm/i.test(m[7])?12:0) : +m[4]; d = new Date(Date.UTC(+m[3],MON.indexOf(m[1].toLowerCase()),+m[2],h,+m[5],+(m[6]||0))); }
-  else if(m = s.match(/^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/)) d = new Date(Date.UTC(+m[1],m[2]-1,+m[3],+m[4],+m[5]));
-  else if(m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})[ ,]+(\d+):(\d+)/)) d = new Date(Date.UTC(+m[3],m[2]-1,+m[1],+m[4],+m[5]));
-  return d && !isNaN(d) ? d.toLocaleDateString("sv-SE") : null; };
-const num = x => parseFloat(String(x||"").replace(",",".")) || 0;
-const kmo = o => o.sport==="natation" ? (o.distance||0)/1000 : (o.distance||0);
-$("csv").onchange = async e => {
-  const file = e.target.files[0]; if(!file) return;
-  const txt = (await file.text()).replace(/^\uFEFF/,""), first = txt.split("\n")[0];
-  const rows = parseCSV(txt, first.split(";").length > first.split(",").length ? ";" : ","), H = (rows[0]||[]).map(h=>h.trim().toLowerCase());
-  const idx = ns => H.reduce((a,h,i)=>ns.includes(h)?a.concat(i):a,[]), last = a => a[a.length-1];
-  const iD = idx(["activity date","date de l'activité","date"])[0], iT = idx(["activity type","type d'activité","type"])[0], iN = idx(["activity name","nom de l'activité","nom"])[0];
-  const iM = last(idx(["moving time","temps de déplacement","durée de déplacement"])) ?? last(idx(["elapsed time","temps écoulé"]));
-  const dI = idx(["distance"]), iK = last(dI), iE = last(idx(["elevation gain","dénivelé positif","gain d'altitude"]));
-  if(iD===undefined || iT===undefined || iM===undefined || iK===undefined){ e.target.value = ""; return say("Colonnes non reconnues dans ce fichier. Vérifiez qu'il s'agit bien de activities.csv (export Strava)."); }
-  const since = $("since").value || "0000-00-00", p = load(), pool = apply(BASE,p).slice(), unknown = new Set();
-  let added = 0, dup = 0, n = 0;
-  for(const r of rows.slice(1)){
-    const date = stravaDate(r[iD]||""); if(!date || date < since) continue;
-    const ty = (r[iT]||"").toLowerCase(), hit = TYPES.find(x=>ty.includes(x[0]));
-    if(!hit){ unknown.add(r[iT]); continue; }
-    const sport = hit[1], sec = Math.round(num(r[iM])), metres = dI.length>1 ? num(r[iK]) : num(r[iK])*1000;
-    const o = {id:"i"+Date.now().toString(36)+(n++), date, sport, duree:`${Math.floor(sec/3600)}:${String(Math.floor(sec%3600/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`,
-      distance: Math.round((sport==="natation" ? metres : metres/1000)*100)/100, dplus: Math.round(num(r[iE])), seance: (r[iN]||"").trim(), commentaire:"", lieu:""};
-    const k = pool.findIndex(x=>x.date===date && x.sport===sport && (Math.abs(kmo(x)-kmo(o))<=0.2 || Math.abs(parseDur(x.duree)-sec)<=120));
-    if(k>=0){ pool.splice(k,1); dup++; continue; }
-    p.up[o.id] = o; added++;
+
+// ---- Import d'un calendrier Excel (.xlsx) ----
+// Format attendu : un onglet par mois, une ligne d'en-têtes « date, sport, temps, distance, denivelé, vitesse moy, séance, commentaire, lieu »,
+// puis une ligne par séance. Les tableaux de totaux sous les séances et les onglets sans ces en-têtes (TOTAL, Record) sont ignorés.
+const YEAR = "2026";
+const norm = t => String(t??"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/\s+/g," ").trim();
+const SPORT_OF = Object.fromEntries(Object.keys(SPORTS).map(k=>[norm(k),k]));
+const inflate = async u8 => new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer());
+function unzip(buf){ // un .xlsx est une archive zip : on lit son répertoire central
+  const dv = new DataView(buf), u8 = new Uint8Array(buf), td = new TextDecoder(), files = {};
+  let e = buf.byteLength-22; while(e>=0 && dv.getUint32(e,true)!==0x06054b50) e--;
+  if(e<0) throw new Error("format");
+  let p = dv.getUint32(e+16,true);
+  for(let i=dv.getUint16(e+10,true); i>0; i--){
+    const nl = dv.getUint16(p+28,true), off = dv.getUint32(p+42,true), start = off+30+dv.getUint16(off+26,true)+dv.getUint16(off+28,true);
+    files[td.decode(u8.subarray(p+46,p+46+nl))] = {deflated:dv.getUint16(p+10,true)===8, data:u8.subarray(start,start+dv.getUint32(p+20,true))};
+    p += 46+nl+dv.getUint16(p+30,true)+dv.getUint16(p+32,true);
   }
-  save(p); e.target.value = "";
-  say(`${added} nouvelle${added>1?"s":""} séance${added>1?"s":""} importée${added>1?"s":""}, ${dup} déjà présente${dup>1?"s":""}.` + (unknown.size ? ` Types ignorés : ${[...unknown].join(", ")}.` : "") + (added ? " Vérifiez-les (✎) puis enregistrez." : ""));
-  render();
+  return async n => { const f = files[n]; return f ? new DOMParser().parseFromString(td.decode(f.deflated ? await inflate(f.data) : f.data),"application/xml") : null; };
+}
+const tags = (x,t) => x ? [...x.getElementsByTagName(t)] : [];
+const colIdx = ref => { let n = 0; for(const c of ref) { if(c<"A"||c>"Z") break; n = n*26+c.charCodeAt(0)-64; } return n-1; };
+async function readXlsx(buf){ // renvoie [{name, rows:[[valeurs]]}], nombres bruts (dates = n° de série Excel, durées = fraction de jour)
+  const xml = unzip(buf), wb = await xml("xl/workbook.xml"); if(!wb) throw new Error("format");
+  const rels = Object.fromEntries(tags(await xml("xl/_rels/workbook.xml.rels"),"Relationship").map(r=>[r.getAttribute("Id"),r.getAttribute("Target")]));
+  const strings = tags(await xml("xl/sharedStrings.xml"),"si").map(si=>tags(si,"t").filter(t=>t.parentNode.localName!=="rPh").map(t=>t.textContent).join(""));
+  const d1904 = /^(1|true)$/.test(tags(wb,"workbookPr")[0]?.getAttribute("date1904")||""), sheets = [];
+  for(const sh of tags(wb,"sheet")){
+    const t = rels[sh.getAttribute("r:id")]||"", doc = await xml(t.startsWith("/") ? t.slice(1) : "xl/"+t); if(!doc) continue;
+    sheets.push({name:sh.getAttribute("name"), rows:tags(doc,"row").map(r=>{ const row = [];
+      tags(r,"c").forEach((c,i)=>{ const ty = c.getAttribute("t"), v = tags(c,"v")[0]?.textContent, k = c.getAttribute("r") ? colIdx(c.getAttribute("r")) : i;
+        if(ty==="inlineStr") row[k] = tags(c,"t").map(x=>x.textContent).join("");
+        else if(v===undefined || v==="" || ty==="e" || ty==="b") return;
+        else row[k] = ty==="s" ? strings[+v] : ty==="str" ? v : +v; });
+      return row; })});
+  }
+  return {sheets,d1904};
+}
+const xlDate = (v,d1904) => { let m;
+  if(typeof v==="number" && v>0) return new Date(Date.UTC(1899,11,30)+(Math.floor(v+1e-9)+(d1904?1462:0))*864e5).toISOString().slice(0,10);
+  if(m = String(v??"").trim().match(/^(\d{4})-(\d\d)-(\d\d)/)) return `${m[1]}-${m[2]}-${m[3]}`;
+  if(m = String(v??"").trim().match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/)) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+  return null; };
+const num = v => typeof v==="number" ? v : parseFloat(String(v??"").replace(",",".")) || 0;
+$("xlsx").onchange = async e => {
+  const file = e.target.files[0]; if(!file) return;
+  try {
+    if(!window.DecompressionStream) throw new Error("navigateur");
+    const {sheets,d1904} = await readXlsx(await file.arrayBuffer()), pool = seances.slice(), unknown = new Set(), months = [];
+    let added = 0, dup = 0, other = 0, bad = 0, n = 0;
+    for(const sh of sheets){
+      const hi = sh.rows.slice(0,15).findIndex(r=>{ const h = r.map(norm); return ["date","sport","seance"].every(x=>h.includes(x)) && h.some(x=>x==="temps"||x==="duree"); });
+      if(hi<0) continue;
+      const H = sh.rows[hi].map(norm), col = f => H.findIndex(f), eq = (...a) => col(h=>a.includes(h));
+      const cD = eq("date"), cS = eq("sport"), cT = eq("temps","duree"), cK = eq("distance"), cE = col(h=>h&&(h.startsWith("deniv")||h==="d+")), cN = eq("seance"), cC = col(h=>h&&h.startsWith("comment")), cL = eq("lieu");
+      const get = (r,c) => c<0 ? undefined : r[c], txt = (r,c) => String(get(r,c)??"").trim();
+      let here = 0;
+      for(const r of sh.rows.slice(hi+1)){
+        const date = xlDate(r[cD],d1904); if(!date) continue; // lignes vides et tableau de totaux
+        const sp = txt(r,cS), t = r[cT], sec = typeof t==="number" ? Math.round(t*86400) : /^\d+:\d\d/.test(String(t??"").trim()) ? parseDur(String(t).trim()) : 0;
+        if(!sp && !sec) continue;
+        if(!sec){ bad++; continue; }
+        const sport = SPORT_OF[norm(sp)]; if(!sport){ unknown.add(sp||"(vide)"); continue; }
+        if(date.slice(0,4)!==YEAR){ other++; continue; }
+        const o = {id:"x"+Date.now().toString(36)+(n++), date, sport, duree:`${Math.floor(sec/3600)}:${String(Math.floor(sec%3600/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`,
+          distance:Math.round(num(get(r,cK))*100)/100, dplus:Math.round(num(get(r,cE))), seance:txt(r,cN), commentaire:txt(r,cC), lieu:txt(r,cL)};
+        const k = pool.findIndex(x=>x.date===date && x.sport===sport && (parseDur(x.duree)===sec || (o.distance>0 && Math.abs((x.distance||0)-o.distance)<0.005)));
+        if(k>=0){ pool.splice(k,1); dup++; continue; }
+        seances.push(o); added++; here++;
+      }
+      if(here) months.push(sh.name);
+    }
+    const pl = (k,a,b) => `${k} ${k>1?b:a}`;
+    if(!added && !dup && !other && !bad && !unknown.size) say("Aucune séance trouvée dans ce fichier. Il faut un onglet par mois avec les en-têtes date, sport, temps, distance, denivelé, séance, commentaire, lieu.");
+    else say(`${pl(added,"séance importée","séances importées")}${months.length?` (${months.join(", ")})`:""}, ${pl(dup,"déjà présente","déjà présentes")}.`
+      + (unknown.size ? ` Sports non reconnus, lignes ignorées : ${[...unknown].join(", ")}.` : "")
+      + (other ? ` ${pl(other,"séance ignorée car hors","séances ignorées car hors")} ${YEAR}.` : "")
+      + (bad ? ` ${pl(bad,"ligne ignorée car sans durée","lignes ignorées car sans durée")}.` : "")
+      + (added && !save() ? NOSAVE : ""));
+    if(added) render();
+  } catch(err) {
+    say(err.message==="navigateur" ? "Ce navigateur est trop ancien pour lire les fichiers Excel. Mettez-le à jour puis réessayez."
+      : "Impossible de lire ce fichier. Vérifiez qu'il s'agit bien d'un classeur Excel au format .xlsx.");
+  }
+  e.target.value = "";
 };
-fetch("seances.json",{cache:"no-store"}).then(r=>r.ok?r.json():Promise.reject()).then(j=>{BASE=j;render();})
-  .catch(()=>{render();$("sub").textContent="Impossible de charger seances.json. Ouvrez la page via GitHub Pages ou un serveur local (python3 -m http.server).";});
+
+render();
+if(!seances.length) $("addbox").open = true;
 </script>
 </body>
 </html>
