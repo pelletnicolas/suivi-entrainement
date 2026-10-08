@@ -51,7 +51,7 @@ tr.yr td{font:700 17px Georgia,serif;padding-top:18px;border-bottom:2px solid va
 tr.yr small{font:400 13px "Avenir Next",Seravek,"Segoe UI",system-ui,sans-serif;color:var(--mute);margin-left:8px}
 td input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;cursor:pointer}button:disabled{opacity:.55;cursor:default;background:var(--card);color:inherit}
 .head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
-/* ---- Livre à imprimer : toujours sur fond blanc, quelle que soit l'apparence (claire ou sombre) de la page ---- */
+/* ---- Bilan à imprimer : toujours sur fond blanc, quelle que soit l'apparence (claire ou sombre) de la page ---- */
 body.bk{background:#e3e7e4}body.bk main{display:none}
 #book{--bg:#fff;--card:#fff;--ink:#1b2a2f;--mute:#5d6e72;--line:#d5dcd8;color:var(--ink);font-size:13px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .bktools{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:10px 16px;background:#1b2a2f;color:#fff}
@@ -79,7 +79,7 @@ body.bk{background:#e3e7e4}body.bk main{display:none}
 </head>
 <body>
 <main>
-<div class="head"><h1>Suivi d'entraînement</h1><button id="bkOpen">Livre à imprimer</button></div>
+<div class="head"><h1>Suivi d'entraînement</h1><button id="bkOpen">BILAN</button></div>
 <div class="bar" id="years" role="tablist" aria-label="Année affichée"></div>
 <p class="sub" id="sub"></p>
 <div class="kpis" id="kpis"></div>
@@ -139,7 +139,7 @@ body.bk{background:#e3e7e4}body.bk main{display:none}
 <div id="book" hidden>
   <div class="bktools">
     <button id="bkClose">← Retour au suivi</button>
-    <label class="cm">Contenu <select id="bkScope" aria-label="Années du livre"></select></label>
+    <label class="cm">Contenu <select id="bkScope" aria-label="Années du bilan"></select></label>
     <label class="chk"><input type="checkbox" id="bkDetail" checked> Détail des séances</label>
     <button id="bkPrint">Imprimer ou enregistrer en PDF</button>
     <span class="cm" id="bkInfo"></span>
@@ -560,7 +560,7 @@ $("imp").onchange = async e => {
   e.target.value = "";
 };
 
-// ---- Livre à imprimer ----
+// ---- Bilan à imprimer (bouton « BILAN ») ----
 // Couverture, vue d'ensemble, puis un chapitre par année (chiffres, graphiques, bilan par sport, faits marquants, courses, séances mois par mois)
 // et le palmarès des courses officielles. L'impression (ou « Enregistrer au format PDF ») passe par la boîte d'impression du navigateur.
 const BK = "suivi-livre", DL = new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"long",year:"numeric"});
@@ -577,7 +577,7 @@ function bookHtml(scope, detail){
   const tot = l => `${plur(l.length,"séance","séances")} · ${hms(sum(l,s=>s.sec))} · ${nb(kms(l))} km · ${nb(sum(l,s=>s.dplus||0))} m D+`;
   const facts = l => `${plur(l.length,"séance","séances")} · ${plur(new Set(l.map(s=>s.date)).size,"jour actif","jours actifs")} · ${plur(l.filter(s=>s.race).length,"course officielle","courses officielles")}`;
   const yrow = (lab,l,cls) => `<tr${cls?` class="${cls}"`:""}><td>${lab}</td><td class="n">${l.length}</td><td class="n">${hms(sum(l,s=>s.sec))}</td><td class="n">${nb(kms(l))}</td><td class="n">${nb(sum(l,s=>s.dplus||0))}</td><td class="n">${l.filter(s=>s.race).length||""}</td></tr>`;
-  let h = `<section class="pg cover"><h1 contenteditable data-k="title" data-ph="Titre du livre">${esc(bk.title ?? "Carnet d'entraînement")}</h1>`
+  let h = `<section class="pg cover"><h1 contenteditable data-k="title" data-ph="Titre du bilan">${esc(bk.title ?? "Bilan d'entraînement")}</h1>`
     + `<p class="who" contenteditable data-k="who" data-ph="Votre nom (cliquez pour l'écrire)">${esc(bk.who)}</p><p class="per">${ys.length>1 ? ys[0]+" – "+ys[ys.length-1] : ys[0]}</p>`
     + `<div class="kpis">${kpiHtml(list)}</div><p>${facts(list)}</p><p class="cm">Édité le ${DL.format(new Date())}</p></section>`;
   if(ys.length>1) h += `<section class="pg"><h2>Vue d'ensemble</h2>${fig(list,true,"h","Heures par année")}${fig(list,true,"km","Kilomètres par année")}`
