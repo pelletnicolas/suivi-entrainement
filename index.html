@@ -50,6 +50,7 @@ tr.st td{font-weight:700;border-bottom:2px solid var(--line)}
 tr.yr td{font:700 17px Georgia,serif;padding-top:18px;border-bottom:2px solid var(--ink)}.fold,.fold:hover{border:0;background:none;color:inherit;padding:0;font:inherit;cursor:pointer}.fold:hover{text-decoration:underline}
 tr.yr small{font:400 13px "Avenir Next",Seravek,"Segoe UI",system-ui,sans-serif;color:var(--mute);margin-left:8px}
 td input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;cursor:pointer}button:disabled{opacity:.55;cursor:default;background:var(--card);color:inherit}
+.sync{margin:10px 0 0;font-size:14px}.sync button{padding:3px 12px}details details{margin-top:10px}
 .head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
 /* ---- Bilan à imprimer : toujours sur fond blanc, quelle que soit l'apparence (claire ou sombre) de la page ---- */
 body.bk{background:#e3e7e4}body.bk main{display:none}
@@ -80,6 +81,8 @@ body.bk{background:#e3e7e4}body.bk main{display:none}
 <body>
 <main>
 <div class="head"><h1>Suivi d'entraînement</h1><button id="bkOpen">BILAN</button></div>
+<div class="bar sync" id="sync" hidden><span id="syncTxt"></span><button id="pub" hidden>Publier en ligne</button><button id="unpub" hidden>Annuler mes modifications</button></div>
+<p class="cm" id="syncMsg" role="status"></p>
 <div class="bar" id="years" role="tablist" aria-label="Année affichée"></div>
 <p class="sub" id="sub"></p>
 <div class="kpis" id="kpis"></div>
@@ -130,8 +133,19 @@ body.bk{background:#e3e7e4}body.bk main{display:none}
       <label class="cm" for="imp">Compléter depuis un fichier : calendrier Excel (.xlsx) ou export Garmin Connect (Activities.csv)</label>
       <input type="file" id="imp" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
     </div>
-    <p class="cm" style="margin:12px 0 4px">Les séances sont enregistrées dans ce navigateur. L'import ajoute les séances absentes, sans toucher à celles déjà présentes ; un sport inconnu est créé automatiquement.</p>
+    <p class="cm" style="margin:12px 0 4px">Vos ajouts et modifications restent dans ce navigateur tant qu'ils ne sont pas publiés en ligne. L'import ajoute les séances absentes, sans toucher à celles déjà présentes ; un sport inconnu est créé automatiquement.</p>
     <p class="cm" id="msg" role="status"></p>
+    <details id="ghbox">
+      <summary style="font-size:15px">Publication en ligne (GitHub)</summary>
+      <p class="cm">Le bouton « Publier en ligne » enregistre vos séances dans le fichier <i>seances.json</i> du dépôt GitHub de cette page : toute personne qui ouvre le lien les voit alors.
+        Il faut un jeton d'accès GitHub « fine-grained », limité à ce dépôt, avec le droit <i>Contents : Read and write</i>. Le jeton reste dans ce navigateur ; il n'est jamais écrit dans le dépôt.</p>
+      <form id="cfg">
+        <input name="repo" placeholder="utilisateur/depot" aria-label="Dépôt GitHub">
+        <input name="branch" placeholder="Branche (main)" aria-label="Branche">
+        <input name="path" placeholder="Fichier (seances.json)" aria-label="Fichier de données">
+        <input name="token" type="password" placeholder="Jeton d'accès GitHub" autocomplete="off" aria-label="Jeton d'accès GitHub">
+      </form>
+    </details>
   </details>
 </div>
 <div class="tip" id="tip" hidden></div>
@@ -175,15 +189,46 @@ const load = () => { try {
     const p = JSON.parse(localStorage.getItem(OLD)); // séances saisies avec l'ancienne version de la page
     return p && p.up ? Object.values(p.up) : [];
   } catch { return []; } };
-const save = () => { try { localStorage.setItem(KEY, JSON.stringify(seances)); return true; } catch { return false; } };
+const save = () => { computePend(); const a = jset(KEY, seances), b = jset(PEND, pend); return a && b; }; // la liste complète + les modifications non publiées
 const parseDur = d => { const p = String(d).split(":").map(Number); return p.length===3 ? p[0]*3600+p[1]*60+p[2] : p[0]*60+(p[1]||0); };
 const toObj = o => ({id:o.id,date:o.date,sport:o.sport,sec:parseDur(o.duree),dist:o.distance||0,dplus:o.dplus||0,title:o.seance||"",comment:o.commentaire||"",place:o.lieu||"",y:+o.date.slice(0,4),m:+o.date.slice(5,7)-1,parts:(o.parts||[]).length,race:!!o.course});
+
+// ---- Données en ligne ----
+// La page publiée charge « seances.json », placé à côté d'elle : tous ceux qui ouvrent le lien voient ces séances.
+// Chaque navigateur ne retient que ses modifications non publiées (pend) par rapport à cette version en ligne (base).
+// « Publier en ligne » applique ces modifications à la version en ligne la plus récente, puis l'enregistre dans le dépôt GitHub.
+const PEND = "suivi-modifs", CACHE = "suivi-en-ligne", GH = "suivi-github";
+const jget = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+const jset = (k,v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
+// Un ancien seances.json n'a pas d'identifiants : on en fabrique de stables à partir du contenu.
+function withIds(a){ const seen = new Set();
+  return a.filter(o=>o && typeof o.date==="string" && /^\d{4}-\d\d-\d\d/.test(o.date) && o.sport && o.duree).map(o=>{ let id = o.id;
+    if(!id){ let h = 5381; for(const c of [o.date,o.sport,o.duree,o.distance,o.seance,o.lieu].join("|")) h = (h*33 ^ c.charCodeAt(0)) >>> 0; id = "h"+h.toString(36); }
+    while(seen.has(id)) id += "b"; seen.add(id); return o.id===id ? o : {...o, id}; }); }
+const parseOnline = t => { const j = JSON.parse(t), l = Array.isArray(j) ? j : j && Array.isArray(j.seances) ? j.seances : null; if(!l) throw new Error("format"); return {list:withIds(l), maj:j.maj||null}; };
+const canon = o => JSON.stringify(o, [...new Set(Object.keys(o).concat((o.parts||[]).flatMap(Object.keys)))].sort()); // comparaison insensible à l'ordre des champs
+const applyPend = (b,p) => { if(p.replace) return seances; const del = new Set(p.del), ids = new Set(b.map(o=>o.id));
+  return b.filter(o=>!del.has(o.id)).map(o=>p.up[o.id]||o).concat(Object.values(p.up).filter(o=>!ids.has(o.id))); };
+let base = (c => c && Array.isArray(c.seances) ? c.seances : [])(jget(CACHE)); // dernière version en ligne connue de ce navigateur
+let online = null;        // {maj, n} une fois la version en ligne lue pendant cette visite
+let pend = jget(PEND);    // {up:{id:séance}, del:[id]} ; replace:true = séances d'avant la mise en ligne, qui remplaceront la version en ligne
 let seances = load().map((o,i)=>o.id?o:{...o,id:"m"+i});
+if(pend && !pend.replace) seances = applyPend(base, pend);
+else if(seances.length) pend = {up:{},del:[],replace:true};
+else { seances = base.slice(); pend = {up:{},del:[]}; }
+function computePend(){
+  if(pend.replace) return;
+  const bm = new Map(base.map(o=>[o.id,canon(o)])), ids = new Set(seances.map(o=>o.id));
+  pend.up = {}; for(const o of seances) if(bm.get(o.id)!==canon(o)) pend.up[o.id] = o;
+  pend.del = base.filter(o=>!ids.has(o.id)).map(o=>o.id);
+}
+const nPend = () => pend.replace ? seances.length : Object.keys(pend.up).length + pend.del.length;
 let all = [], data = [], sort = {k:"date",d:-1}, metric = "h"; // all : toutes les séances ; data : celles de l'année affichée
 let year = null;  // onglet du haut : "" = toutes les années, "races" = courses officielles, sinon l'année ; null = pas encore choisi (dernière année qui a des séances)
 const multi = () => typeof year !== "number"; // vue sur plusieurs années (« Toutes les années » ou « Courses officielles »)
 const closed = new Set(); // années repliées dans l'onglet « Courses officielles »
 const picked = new Set(); // identifiants des séances cochées dans la liste (pour les fusionner)
+let nav = false;   // le visiteur a choisi lui-même un onglet d'année ou de mois
 let month = null; // sous-onglet : "" = toute l'année, 0 à 11 = un mois, null = pas encore choisi (dernier mois qui a des séances)
 
 const hms = s => { s=Math.round(s); return `${Math.floor(s/3600)}h${String(Math.floor(s%3600/60)).padStart(2,"0")}`; };
@@ -205,7 +250,7 @@ function years(){
   const ys = [...new Set([...Object.keys(n).map(Number), ...(multi() ? [] : [year])])].sort((a,b)=>a-b);
   const list = [["","Toutes les années",all.length], ...ys.map(y=>[y,y,n[y]||0]), ["races","Courses officielles",all.filter(s=>s.race).length]];
   $("years").innerHTML = list.map(([v,l,c])=>`<button class="chip big${year===v?" on":""}${c?"":" off"}" role="tab" aria-selected="${year===v}" data-y="${v}">${l}${c?`<small>${c}</small>`:""}</button>`).join("");
-  document.querySelectorAll("[data-y]").forEach(b=>b.onclick=()=>{ const v = b.dataset.y; year = v==="" || v==="races" ? v : +v; month = null; render(); document.querySelector(`[data-y="${year}"]`).focus(); });
+  document.querySelectorAll("[data-y]").forEach(b=>b.onclick=()=>{ const v = b.dataset.y; year = v==="" || v==="races" ? v : +v; month = null; nav = true; render(); document.querySelector(`[data-y="${year}"]`).focus(); });
 }
 const plur = (n,a,b) => `${n} ${n>1?b:a}`;
 // Les quatre chiffres clés d'une liste de séances
@@ -216,7 +261,7 @@ const kpiHtml = (list,what="d'entraînement") => [
     [Math.round(sum(list.filter(s=>s.sport==="natation"),s=>s.dist)/100)/10+" km","de natation"]
   ].map(k=>`<div class="kpi"><b>${k[0]}</b><span>${k[1]}</span></div>`).join("");
 function render(){
-  syncSports();
+  syncSports(); syncBar();
   all = seances.map(toObj);
   if(year===null) year = all.length ? all.reduce((m,s)=>Math.max(m,s.y),0) : new Date().getFullYear();
   const R = year==="races";
@@ -326,7 +371,7 @@ function tabs(){
   document.querySelectorAll("[data-mo]").forEach(b=>b.onclick=()=>{
     // Le bilan par sport, au-dessus, change de hauteur avec le mois : on recale le défilement pour que les onglets restent sous le pointeur.
     const root = document.documentElement, top = $("tabs").getBoundingClientRect().top; root.style.overflowAnchor = "none";
-    month = b.dataset.mo==="" ? "" : +b.dataset.mo; bySport(); table();
+    month = b.dataset.mo==="" ? "" : +b.dataset.mo; nav = true; bySport(); table();
     scrollBy(0, $("tabs").getBoundingClientRect().top - top); requestAnimationFrame(()=>root.style.overflowAnchor = "");
     document.querySelector(`[data-mo="${month}"]`).focus({preventScroll:true});
   });
@@ -357,8 +402,9 @@ function table(full){
   if($("more")) $("more").onclick = () => table(true);
   document.querySelectorAll("[data-fy]").forEach(b=>b.onclick=()=>{ const y = +b.dataset.fy; closed.has(y) ? closed.delete(y) : closed.add(y); table(); document.querySelector(`[data-fy="${y}"]`).focus(); });
   document.querySelectorAll("[data-r]").forEach(b=>b.onclick=()=>{ // marquer ou démarquer une course officielle
-    const o = seances.find(x=>x.id===b.dataset.r); if(!o) return;
-    if(o.course) delete o.course; else o.course = true;
+    const i = seances.findIndex(x=>x.id===b.dataset.r); if(i<0) return;
+    const o = {...seances[i]}; if(o.course) delete o.course; else o.course = true;
+    seances[i] = o; // nouvel objet : la version en ligne gardée en mémoire ne doit pas être modifiée
     const saved = save(); if(editing===o.id) form.elements.course.checked = !!o.course;
     render(); $("lmsg").textContent = (o.course ? "Séance marquée comme course officielle." : "Course officielle retirée.") + (saved ? "" : NOSAVE);
     const again = [...document.querySelectorAll("[data-r]")].find(x=>x.dataset.r===o.id); if(again) again.focus();
@@ -607,8 +653,69 @@ $("bkClose").onclick = () => { document.body.classList.remove("bk"); $("book").h
 $("bkScope").onchange = $("bkDetail").onchange = drawBook;
 $("bkPrint").onclick = () => print();
 
+// ---- Lecture de la version en ligne et publication dans GitHub ----
+const guess = () => { const m = location.hostname.match(/^([^.]+)\.github\.io$/), r = location.pathname.split("/").filter(Boolean)[0]; return m && r && !/\.html?$/.test(r) ? {repo:m[1]+"/"+r} : {}; };
+const cfg = () => ({...guess(), ...Object.fromEntries(Object.entries(jget(GH)||{}).filter(x=>x[1]))});
+const gh = (c,method,{raw,body,root}={}) => fetch(`https://api.github.com/repos/${c.repo}` + (root ? "" : `/contents/${encodeURI(c.path||"seances.json")}` + (method==="GET" ? `?ref=${encodeURIComponent(c.branch||"main")}` : "")),
+  {method, cache:"no-store", headers:{Authorization:`Bearer ${c.token}`, Accept:raw ? "application/vnd.github.raw+json" : "application/vnd.github+json"}, body:body && JSON.stringify(body)});
+const b64 = t => { const u = new TextEncoder().encode(t); let r = ""; for(let i=0;i<u.length;i+=32768) r += String.fromCharCode.apply(null,u.subarray(i,i+32768)); return btoa(r); };
+const sayS = m => $("syncMsg").textContent = m;
+const DT = new Intl.DateTimeFormat("fr-FR",{day:"numeric",month:"long",year:"numeric",hour:"2-digit",minute:"2-digit"});
+function syncBar(){
+  computePend(); const n = nPend(), d = online && online.maj ? " du "+DT.format(new Date(online.maj)) : "";
+  $("syncTxt").textContent = pend.replace && n ? `Vos ${plur(n,"séance n'est enregistrée","séances ne sont enregistrées")} que dans ce navigateur : publiez-les pour qu'elles soient visibles avec le lien.`
+    : n ? `${plur(n,"modification non publiée","modifications non publiées")} dans ce navigateur.` : online ? `Version en ligne${d} : ${plur(online.n,"séance","séances")}.` : "";
+  $("pub").hidden = !n; $("unpub").hidden = !n || !!pend.replace || !online; $("sync").hidden = !$("syncTxt").textContent;
+}
+// Version en ligne : par l'API GitHub si un jeton est saisi (toujours à jour), sinon le fichier servi à côté de la page
+async function fetchOnline(){
+  const c = cfg();
+  if(c.repo && c.token) try { const r = await gh(c,"GET",{raw:true}); if(r.ok) return parseOnline(await r.text()); } catch {}
+  if(!/^https?:$/.test(location.protocol)) return null;
+  try { const r = await fetch("seances.json?t="+Date.now(),{cache:"no-store"}); return r.ok ? parseOnline(await r.text()) : null; } catch { return null; }
+}
+function setBase(list, maj){ base = list; online = {maj, n:list.length}; jset(CACHE,{maj,seances:list}); }
+async function refresh(){
+  const r = await fetchOnline(); if(!r) return syncBar();
+  computePend(); setBase(r.list, r.maj); seances = applyPend(base, pend); save();
+  if(!nav && !editing) year = month = null; // tant que rien n'a été choisi : dernière année et dernier mois remplis
+  render();
+}
+async function publish(){
+  const c = cfg();
+  if(!c.repo || !c.token){ $("addbox").open = $("ghbox").open = true; $("ghbox").scrollIntoView({behavior:"smooth"}); return sayS("Pour publier, renseignez le dépôt et le jeton d'accès GitHub dans « Publication en ligne (GitHub) », en bas de la page."); }
+  computePend(); const n = nPend(); sayS("Publication en cours…"); $("pub").disabled = true;
+  try {
+    if(!c.branch){ // branche non renseignée : on prend la branche principale du dépôt, et on la retient
+      const r = await gh(c,"GET",{root:true}); if(r.status===401) throw new Error("jeton refusé par GitHub"); if(!r.ok) throw new Error("dépôt introuvable, ou jeton sans accès à ce dépôt");
+      c.branch = (await r.json()).default_branch || "main"; $("cfg").elements.branch.value = c.branch; $("cfg").oninput();
+    }
+    const meta = await gh(c,"GET"); let sha, remote = [];
+    if(meta.ok){ sha = (await meta.json()).sha; const raw = await gh(c,"GET",{raw:true}); if(!raw.ok) throw new Error("lecture impossible ("+raw.status+")"); remote = parseOnline(await raw.text()).list; }
+    else if(meta.status===401) throw new Error("jeton refusé par GitHub");
+    else if(meta.status===404){ if(!(await gh(c,"GET",{root:true})).ok) throw new Error("dépôt introuvable, ou jeton sans accès à ce dépôt"); } // sinon : le fichier n'existe pas encore, il va être créé
+    else if(meta.status===403) throw new Error("accès refusé par GitHub (droits du jeton insuffisants, ou trop de requêtes)");
+    else throw new Error("GitHub a répondu "+meta.status);
+    const list = applyPend(remote, pend).slice().sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0), maj = new Date().toISOString();
+    const text = `{"maj":${JSON.stringify(maj)},"seances":[\n${list.map(o=>JSON.stringify(o)).join(",\n")}\n]}\n`;
+    const put = await gh(c,"PUT",{body:{message:`Mise à jour des séances (${plur(n,"modification","modifications")})`, content:b64(text), branch:c.branch||"main", ...(sha ? {sha} : {})}});
+    if(!put.ok) throw new Error(put.status===409 ? "la version en ligne a changé entre-temps, réessayez" : put.status===403 ? "le jeton n'a pas le droit d'écrire dans ce dépôt (il faut Contents : Read and write)" : put.status===404 || put.status===422 ? `branche « ${c.branch} » introuvable, ou jeton sans droit d'écriture (il faut Contents : Read and write)` : "GitHub a répondu "+put.status);
+    pend = {up:{},del:[]}; seances = list.slice(); setBase(list, maj); const saved = save(); render();
+    sayS(`Publié : ${plur(list.length,"séance","séances")} en ligne. Le lien affichera cette version d'ici une à deux minutes.` + (saved ? "" : NOSAVE));
+  } catch(e) { sayS("Échec de la publication : " + (e instanceof TypeError ? "connexion à GitHub impossible" : e.message) + ". Vos modifications restent enregistrées dans ce navigateur."); }
+  $("pub").disabled = false;
+}
+$("pub").onclick = publish;
+$("unpub").onclick = () => {
+  if(!confirm(`Abandonner vos ${plur(nPend(),"modification non publiée","modifications non publiées")} et revenir à la version en ligne ?`)) return;
+  pend = {up:{},del:[]}; seances = base.slice(); picked.clear(); if(editing) resetForm(); save(); render(); sayS("Modifications abandonnées.");
+};
+(c => Object.keys(c).forEach(k=>{ const el = $("cfg").elements[k]; if(el) el.value = c[k]; }))(cfg());
+$("cfg").onsubmit = e => e.preventDefault();
+$("cfg").oninput = () => { jset(GH, Object.fromEntries([...new FormData($("cfg"))].map(([k,v])=>[k,String(v).trim()]))); };
+
 render();
-if(!seances.length) $("addbox").open = true;
+refresh().then(() => { if(!seances.length) $("addbox").open = true; });
 </script>
 </body>
 </html>
