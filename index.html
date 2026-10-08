@@ -62,7 +62,7 @@ td input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;c
 </div>
 
 <div class="grid2">
-  <div class="card"><h2>Bilan par sport</h2><div class="wrap"><table id="bySport"></table></div></div>
+  <div class="card"><h2 id="hBil">Bilan par sport</h2><div class="wrap"><table id="bySport"></table></div></div>
   <div class="card"><h2 id="hRec">Faits marquants</h2><ul class="rec" id="rec"></ul></div>
 </div>
 
@@ -235,13 +235,15 @@ function chart(){
 // Sous-totaux du bilan : [libellé, sports regroupés]. L'allure du sous-total suit celle du premier sport (min/km ou km/h).
 const GROUPS = [["Total course à pied",["course route","trail"]],["Total vélo",["velo route","home trainer","vtt"]]];
 function bySport(){
+  const view = month==="" ? data : data.filter(s=>s.m===month); // suit le sous-onglet de mois de la liste des séances
+  $("hBil").textContent = "Bilan par sport" + (year==="" ? ", toutes années" : month==="" ? " "+year : `, ${MONTHS[month].toLowerCase()} ${year}`);
   const line = (lab,a,k,cls) => { const d = sum(a,km), t = sum(a,s=>s.sec), dp = sum(a,s=>s.dplus||0), p = pace({sport:k,sec:t,dist:k==="natation"?d*1000:d});
     return `<tr${cls?` class="${cls}"`:""}><td>${lab}</td><td class="n">${a.length}</td><td class="n">${hms(t)}</td><td class="n">${d?d.toFixed(0):""}</td><td class="n">${dp?Math.round(dp).toLocaleString("fr-FR"):""}</td><td class="n">${p}</td></tr>`; };
-  const one = k => { const a = data.filter(s=>s.sport===k); return a.length ? line(`<i class="dot" style="background:${col(k)}"></i>${name(k)}`,a,k) : ""; };
+  const one = k => { const a = view.filter(s=>s.sport===k); return a.length ? line(`<i class="dot" style="background:${col(k)}"></i>${name(k)}`,a,k) : ""; };
   const grouped = new Set(GROUPS.flatMap(g=>g[1]));
-  const rows = GROUPS.map(([lab,ks])=>{ const a = data.filter(s=>ks.includes(s.sport)); return a.length ? ks.map(one).join("")+line(lab,a,ks[0],"st") : ""; }).join("")
+  const rows = GROUPS.map(([lab,ks])=>{ const a = view.filter(s=>ks.includes(s.sport)); return a.length ? ks.map(one).join("")+line(lab,a,ks[0],"st") : ""; }).join("")
     + Object.keys(SPORTS).filter(k=>!grouped.has(k)).map(one).join("");
-  $("bySport").innerHTML = `<tr><th>Sport</th><th class="n">Nb</th><th class="n">Temps</th><th class="n">km</th><th class="n">D+</th><th class="n">Moy.</th></tr>${rows}`;
+  $("bySport").innerHTML = `<tr><th>Sport</th><th class="n">Nb</th><th class="n">Temps</th><th class="n">km</th><th class="n">D+</th><th class="n">Moy.</th></tr>${rows || `<tr><td colspan="6" class="cm">Aucune séance sur cette période.</td></tr>`}`;
 }
 
 function records(){
@@ -261,7 +263,13 @@ function tabs(){
   $("tabs").hidden = year===""; // pas de sous-onglets dans « Toutes les années »
   const list = [["","Toute l'année",data.length], ...MONTHS.map((m,i)=>[i,m,data.filter(s=>s.m===i).length])];
   $("tabs").innerHTML = list.map(([v,l,n])=>`<button class="chip${month===v?" on":""}${n?"":" off"}" role="tab" aria-selected="${month===v}" data-mo="${v}">${l}${n?`<small>${n}</small>`:""}</button>`).join("");
-  document.querySelectorAll("[data-mo]").forEach(b=>b.onclick=()=>{ month = b.dataset.mo==="" ? "" : +b.dataset.mo; table(); document.querySelector(`[data-mo="${month}"]`).focus(); });
+  document.querySelectorAll("[data-mo]").forEach(b=>b.onclick=()=>{
+    // Le bilan par sport, au-dessus, change de hauteur avec le mois : on recale le défilement pour que les onglets restent sous le pointeur.
+    const root = document.documentElement, top = $("tabs").getBoundingClientRect().top; root.style.overflowAnchor = "none";
+    month = b.dataset.mo==="" ? "" : +b.dataset.mo; bySport(); table();
+    scrollBy(0, $("tabs").getBoundingClientRect().top - top); requestAnimationFrame(()=>root.style.overflowAnchor = "");
+    document.querySelector(`[data-mo="${month}"]`).focus({preventScroll:true});
+  });
 }
 const MAXROWS = 300; // au-delà, la suite de la liste s'affiche à la demande pour garder la page fluide
 function table(full){
