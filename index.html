@@ -83,8 +83,8 @@ td button{padding:1px 8px}
       <button id="ok">Ajouter</button><button type="button" id="del" hidden>Supprimer</button><button type="button" id="cancel" hidden>Annuler</button>
     </form>
     <div class="bar" style="margin-top:12px">
-      <label class="cm" for="xlsx">Compléter depuis un calendrier Excel (.xlsx, un onglet par mois)</label>
-      <input type="file" id="xlsx" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+      <label class="cm" for="imp">Compléter depuis un fichier : calendrier Excel (.xlsx) ou export Garmin Connect (Activities.csv)</label>
+      <input type="file" id="imp" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
     </div>
     <p class="cm" style="margin:12px 0 4px">Les séances sont enregistrées dans ce navigateur. L'import ajoute les séances absentes, sans toucher à celles déjà présentes.</p>
     <p class="cm" id="msg" role="status"></p>
@@ -232,12 +232,19 @@ $("del").onclick = () => {
   say("Séance supprimée." + (save() ? "" : NOSAVE)); resetForm(); render();
 };
 
-// ---- Import d'un calendrier Excel (.xlsx) ----
-// Format attendu : un onglet par mois, une ligne d'en-têtes « date, sport, temps, distance, denivelé, vitesse moy, séance, commentaire, lieu »,
-// puis une ligne par séance. Les tableaux de totaux sous les séances et les onglets sans ces en-têtes (TOTAL, Record) sont ignorés.
+// ---- Import de fichiers : calendrier Excel (.xlsx) ou export Garmin Connect (Activities.csv) ----
+// Excel : un onglet par mois, une ligne d'en-têtes « date, sport, temps, distance, denivelé, vitesse moy, séance, commentaire, lieu »,
+//   puis une ligne par séance. Les tableaux de totaux sous les séances et les onglets sans ces en-têtes (TOTAL, Record) sont ignorés.
+// Garmin : colonnes « Type d'activité, Date, Titre, Distance, Durée, Ascension totale » (les autres colonnes ne sont pas lues).
 const YEAR = "2026";
-const norm = t => String(t??"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/\s+/g," ").trim();
+const norm = t => String(t??"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/\s+/g," ").trim();
 const SPORT_OF = Object.fromEntries(Object.keys(SPORTS).map(k=>[norm(k),k]));
+const fmtDur = sec => `${Math.floor(sec/3600)}:${String(Math.floor(sec%3600/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`;
+const kmOf = o => o.sport==="natation" ? (o.distance||0)/1000 : (o.distance||0);
+// Même séance : même jour et, pour un même sport, durée (à 30 s près) ou distance (à 50 m près) identique ; les deux si le sport diffère.
+const same = (x,o) => { if(x.date!==o.date) return false;
+  const dt = Math.abs(parseDur(x.duree)-parseDur(o.duree))<=30, dd = kmOf(o)>0 && Math.abs(kmOf(x)-kmOf(o))<=0.0501;
+  return x.sport===o.sport ? dt||dd : dt&&dd; };
 const inflate = async u8 => new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer());
 function unzip(buf){ // un .xlsx est une archive zip : on lit son répertoire central
   const dv = new DataView(buf), u8 = new Uint8Array(buf), td = new TextDecoder(), files = {};
@@ -275,45 +282,86 @@ const xlDate = (v,d1904) => { let m;
   if(m = String(v??"").trim().match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})/)) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
   return null; };
 const num = v => typeof v==="number" ? v : parseFloat(String(v??"").replace(",",".")) || 0;
-$("xlsx").onchange = async e => {
+function fromXlsx({sheets,d1904}){
+  const list = [], unknown = new Set(); let bad = 0, found = false;
+  for(const sh of sheets){
+    const hi = sh.rows.slice(0,15).findIndex(r=>{ const h = r.map(norm); return ["date","sport","seance"].every(x=>h.includes(x)) && h.some(x=>x==="temps"||x==="duree"); });
+    if(hi<0) continue;
+    found = true;
+    const H = sh.rows[hi].map(norm), col = f => H.findIndex(f), eq = (...a) => col(h=>a.includes(h));
+    const cD = eq("date"), cS = eq("sport"), cT = eq("temps","duree"), cK = eq("distance"), cE = col(h=>h&&(h.startsWith("deniv")||h==="d+")), cN = eq("seance"), cC = col(h=>h&&h.startsWith("comment")), cL = eq("lieu");
+    const get = (r,c) => c<0 ? undefined : r[c], txt = (r,c) => String(get(r,c)??"").trim();
+    for(const r of sh.rows.slice(hi+1)){
+      const date = xlDate(r[cD],d1904); if(!date) continue; // lignes vides et tableau de totaux
+      const sp = txt(r,cS), t = r[cT], sec = typeof t==="number" ? Math.round(t*86400) : /^\d+:\d\d/.test(String(t??"").trim()) ? parseDur(String(t).trim()) : 0;
+      if(!sp && !sec) continue;
+      if(!sec){ bad++; continue; }
+      const sport = SPORT_OF[norm(sp)]; if(!sport){ unknown.add(sp||"(vide)"); continue; }
+      list.push({date, sport, duree:fmtDur(sec), distance:Math.round(num(get(r,cK))*100)/100, dplus:Math.round(num(get(r,cE))), seance:txt(r,cN), commentaire:txt(r,cC), lieu:txt(r,cL)});
+    }
+  }
+  if(!found) throw new Error("inconnu");
+  return {list,unknown,bad};
+}
+const parseCSV = (txt,sep) => { const rows = []; let r = [], f = "", q = false;
+  for(let i=0;i<txt.length;i++){ const c = txt[i];
+    if(q){ if(c==='"'){ if(txt[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=c; }
+    else if(c==='"') q = true;
+    else if(c===sep){ r.push(f); f=""; }
+    else if(c==="\n"||c==="\r"){ if(c==="\r"&&txt[i+1]==="\n") i++; r.push(f); f=""; rows.push(r); r=[]; }
+    else f+=c; }
+  if(f||r.length){ r.push(f); rows.push(r); } return rows.filter(x=>x.join("").trim()); };
+// Type d'activité Garmin (français ou anglais) → sport de cette page. L'ordre compte : le premier motif trouvé gagne.
+const GARMIN = [[/trail|ultra/,"trail"],[/ski.*(rando|hors|backcountry|alpinisme)/,"ski rando"],[/ski/,null],[/vtt|mountain/,"vtt"],[/cycl|velo|bik|ride/,"velo route"],
+  [/natation|nat\.|swim/,"natation"],[/muscu|renfo|force|strength|hiit/,"renfo"],[/rando|marche|hik|walk/,"randonnée"],[/course|run|tapis/,"course route"]];
+function fromGarmin(text){
+  const first = text.split("\n")[0], sep = first.split(";").length > first.split(",").length ? ";" : ",", rows = parseCSV(text,sep), H = (rows[0]||[]).map(norm);
+  const col = (...a) => H.findIndex(h=>a.some(x=>h===x||h.startsWith(x)));
+  const cT = col("type d'activit","activity type"), cD = col("date"), cN = col("titre","title"), cK = col("distance"), cM = col("duree","time"), cE = col("ascension totale","total ascent","ascension");
+  if(cT<0 || cD<0 || cM<0) throw new Error("inconnu");
+  // Garmin écrit « 2,564 » pour 2564 et « 50.64 » pour 50,64 ; avec le séparateur « ; » la virgule est la décimale.
+  const gnum = v => { let x = String(v??"").replace(/\s/g,""); x = sep===";" ? x.replace(/\./g,"").replace(",",".") : /^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(x) ? x.replace(/,/g,"") : x.replace(",","."); return parseFloat(x) || 0; };
+  const list = [], unknown = new Set(); let bad = 0;
+  for(const r of rows.slice(1)){
+    const type = (r[cT]||"").trim(), m = (r[cD]||"").trim().match(/^(\d{4})-(\d\d)-(\d\d)|^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if(!m) continue;
+    const date = m[1] ? `${m[1]}-${m[2]}-${m[3]}` : `${m[6]}-${m[5].padStart(2,"0")}-${m[4].padStart(2,"0")}`;
+    const p = (r[cM]||"").trim().split(":").map(Number), sec = p.some(isNaN) ? 0 : Math.round(p.length===3 ? p[0]*3600+p[1]*60+p[2] : p.length===2 ? p[0]*60+p[1] : 0);
+    if(!sec){ bad++; continue; }
+    const nt = norm(type), sport = (GARMIN.find(g=>g[0].test(nt))||[])[1]; if(!sport){ unknown.add(type||"(vide)"); continue; }
+    let distance = cK<0 ? 0 : gnum(r[cK]); if(sport==="natation" && distance<50) distance *= 1000; // la page compte la natation en mètres
+    const title = (cN<0 ? "" : r[cN]||"").trim(), auto = type && norm(title).endsWith(nt); // titre par défaut de Garmin : « Ville Type d'activité »
+    list.push({date, sport, duree:fmtDur(sec), distance:Math.round(distance*100)/100, dplus:cE<0 ? 0 : Math.round(gnum(r[cE])), seance:auto ? "" : title, commentaire:"", lieu:auto ? title.slice(0,title.length-type.length).trim() : ""});
+  }
+  return {list,unknown,bad};
+}
+$("imp").onchange = async e => {
   const file = e.target.files[0]; if(!file) return;
   try {
-    if(!window.DecompressionStream) throw new Error("navigateur");
-    const {sheets,d1904} = await readXlsx(await file.arrayBuffer()), pool = seances.slice(), unknown = new Set(), months = [];
-    let added = 0, dup = 0, other = 0, bad = 0, n = 0;
-    for(const sh of sheets){
-      const hi = sh.rows.slice(0,15).findIndex(r=>{ const h = r.map(norm); return ["date","sport","seance"].every(x=>h.includes(x)) && h.some(x=>x==="temps"||x==="duree"); });
-      if(hi<0) continue;
-      const H = sh.rows[hi].map(norm), col = f => H.findIndex(f), eq = (...a) => col(h=>a.includes(h));
-      const cD = eq("date"), cS = eq("sport"), cT = eq("temps","duree"), cK = eq("distance"), cE = col(h=>h&&(h.startsWith("deniv")||h==="d+")), cN = eq("seance"), cC = col(h=>h&&h.startsWith("comment")), cL = eq("lieu");
-      const get = (r,c) => c<0 ? undefined : r[c], txt = (r,c) => String(get(r,c)??"").trim();
-      let here = 0;
-      for(const r of sh.rows.slice(hi+1)){
-        const date = xlDate(r[cD],d1904); if(!date) continue; // lignes vides et tableau de totaux
-        const sp = txt(r,cS), t = r[cT], sec = typeof t==="number" ? Math.round(t*86400) : /^\d+:\d\d/.test(String(t??"").trim()) ? parseDur(String(t).trim()) : 0;
-        if(!sp && !sec) continue;
-        if(!sec){ bad++; continue; }
-        const sport = SPORT_OF[norm(sp)]; if(!sport){ unknown.add(sp||"(vide)"); continue; }
-        if(date.slice(0,4)!==YEAR){ other++; continue; }
-        const o = {id:"x"+Date.now().toString(36)+(n++), date, sport, duree:`${Math.floor(sec/3600)}:${String(Math.floor(sec%3600/60)).padStart(2,"0")}:${String(sec%60).padStart(2,"0")}`,
-          distance:Math.round(num(get(r,cK))*100)/100, dplus:Math.round(num(get(r,cE))), seance:txt(r,cN), commentaire:txt(r,cC), lieu:txt(r,cL)};
-        const k = pool.findIndex(x=>x.date===date && x.sport===sport && (parseDur(x.duree)===sec || (o.distance>0 && Math.abs((x.distance||0)-o.distance)<0.005)));
-        if(k>=0){ pool.splice(k,1); dup++; continue; }
-        seances.push(o); added++; here++;
-      }
-      if(here) months.push(sh.name);
+    const buf = await file.arrayBuffer(), u8 = new Uint8Array(buf); let res;
+    if(u8[0]===0x50 && u8[1]===0x4b){ // « PK » : archive zip, donc classeur Excel
+      if(!window.DecompressionStream) throw new Error("navigateur");
+      res = fromXlsx(await readXlsx(buf));
+    } else {
+      let t = new TextDecoder().decode(u8); if(t.includes("\ufffd")) t = new TextDecoder("windows-1252").decode(u8);
+      res = fromGarmin(t.replace(/^\ufeff/,""));
+    }
+    const pool = seances.slice(); let added = 0, dup = 0, other = 0, n = 0;
+    for(const o of res.list){
+      if(o.date.slice(0,4)!==YEAR){ other++; continue; }
+      const k = pool.findIndex(x=>same(x,o));
+      if(k>=0){ pool.splice(k,1); dup++; continue; }
+      seances.push({id:"x"+Date.now().toString(36)+(n++), ...o}); added++;
     }
     const pl = (k,a,b) => `${k} ${k>1?b:a}`;
-    if(!added && !dup && !other && !bad && !unknown.size) say("Aucune séance trouvée dans ce fichier. Il faut un onglet par mois avec les en-têtes date, sport, temps, distance, denivelé, séance, commentaire, lieu.");
-    else say(`${pl(added,"séance importée","séances importées")}${months.length?` (${months.join(", ")})`:""}, ${pl(dup,"déjà présente","déjà présentes")}.`
-      + (unknown.size ? ` Sports non reconnus, lignes ignorées : ${[...unknown].join(", ")}.` : "")
+    say(`${pl(added,"séance importée","séances importées")}, ${pl(dup,"déjà présente","déjà présentes")}.`
+      + (res.unknown.size ? ` Sports non reconnus, lignes ignorées : ${[...res.unknown].join(", ")}.` : "")
       + (other ? ` ${pl(other,"séance ignorée car hors","séances ignorées car hors")} ${YEAR}.` : "")
-      + (bad ? ` ${pl(bad,"ligne ignorée car sans durée","lignes ignorées car sans durée")}.` : "")
+      + (res.bad ? ` ${pl(res.bad,"ligne ignorée car sans durée","lignes ignorées car sans durée")}.` : "")
       + (added && !save() ? NOSAVE : ""));
     if(added) render();
   } catch(err) {
     say(err.message==="navigateur" ? "Ce navigateur est trop ancien pour lire les fichiers Excel. Mettez-le à jour puis réessayez."
-      : "Impossible de lire ce fichier. Vérifiez qu'il s'agit bien d'un classeur Excel au format .xlsx.");
+      : "Fichier non reconnu. Il faut soit le calendrier Excel (.xlsx, un onglet par mois avec les en-têtes date, sport, temps, distance…), soit l'export Activities.csv de Garmin Connect.");
   }
   e.target.value = "";
 };
