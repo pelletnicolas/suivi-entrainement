@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Suivi d'entraînement</title>
 <style>
-:root{--bg:#eef1ee;--card:#fff;--ink:#1b2a2f;--mute:#5d6e72;--line:#d5dcd8;--c-route:#2b6f8f;--c-trail:#c4572b;--c-velo:#d9a21b;--c-vtt:#7a8f2e;--c-nat:#3fa7a0;--c-renfo:#7d5ba6;--c-autre:#8a8f91}
+:root{--bg:#eef1ee;--card:#fff;--ink:#1b2a2f;--mute:#5d6e72;--line:#d5dcd8;--c-route:#2b6f8f;--c-trail:#c4572b;--c-velo:#d9a21b;--c-ht:#d16a9c;--c-vtt:#7a8f2e;--c-nat:#3fa7a0;--c-renfo:#7d5ba6;--c-autre:#8a8f91}
 @media(prefers-color-scheme:dark){:root{--bg:#121a1c;--card:#1a2427;--ink:#e6ecea;--mute:#93a5a8;--line:#2c3a3e}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Avenir Next",Seravek,"Segoe UI",system-ui,sans-serif}
@@ -39,6 +39,7 @@ details summary{cursor:pointer;font:600 18px Georgia,serif}
 .rec li{margin:4px 0}
 [hidden]{display:none!important}
 td button{padding:1px 8px}
+tr.st td{font-weight:700;border-bottom:2px solid var(--line)}
 td input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;cursor:pointer}button:disabled{opacity:.55;cursor:default;background:var(--card);color:inherit}
 </style>
 </head>
@@ -102,7 +103,7 @@ td input[type=checkbox]{width:16px;height:16px;padding:0;vertical-align:middle;c
 <script>
 // Les séances sont enregistrées dans ce navigateur (localStorage). Distance en km, sauf natation en mètres.
 // Sports de base. Tout autre nom de sport rencontré dans les séances (type d'activité inconnu à l'import) devient un sport à part entière.
-const BASE = {"course route":["Course route","--c-route"],"trail":["Trail","--c-trail"],"velo route":["Vélo route","--c-velo"],"vtt":["VTT","--c-vtt"],"natation":["Natation","--c-nat"],"renfo":["Renfo","--c-renfo"],"ski rando":["Ski rando","--c-autre"],"randonnée":["Randonnée","--c-autre"]};
+const BASE = {"course route":["Course route","--c-route"],"trail":["Trail","--c-trail"],"velo route":["Vélo route","--c-velo"],"home trainer":["Home trainer","--c-ht"],"vtt":["VTT","--c-vtt"],"natation":["Natation","--c-nat"],"renfo":["Renfo","--c-renfo"],"ski rando":["Ski rando","--c-autre"],"randonnée":["Randonnée","--c-autre"]};
 const MSHORT = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"];
 const MONTHS = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
 const KEY = "suivi-2026-seances", OLD = "suivi-2026-modifs";
@@ -205,13 +206,15 @@ function chart(){
   document.querySelectorAll("[data-m]").forEach(b=>b.onclick=()=>{metric=b.dataset.m;chart();});
 }
 
+// Sous-totaux du bilan : [libellé, sports regroupés]. L'allure du sous-total suit celle du premier sport (min/km ou km/h).
+const GROUPS = [["Total course à pied",["course route","trail"]],["Total vélo",["velo route","home trainer","vtt"]]];
 function bySport(){
-  const rows = Object.keys(SPORTS).map(k=>{
-    const a = data.filter(s=>s.sport===k); if(!a.length) return "";
-    const d = sum(a,km), t = sum(a,s=>s.sec), dp = sum(a,s=>s.dplus||0);
-    const p = pace({sport:k,sec:t,dist:k==="natation"?d*1000:d});
-    return `<tr><td><i class="dot" style="background:${col(k)}"></i>${name(k)}</td><td class="n">${a.length}</td><td class="n">${hms(t)}</td><td class="n">${d?d.toFixed(0):""}</td><td class="n">${dp?Math.round(dp).toLocaleString("fr-FR"):""}</td><td class="n">${p}</td></tr>`;
-  }).join("");
+  const line = (lab,a,k,cls) => { const d = sum(a,km), t = sum(a,s=>s.sec), dp = sum(a,s=>s.dplus||0), p = pace({sport:k,sec:t,dist:k==="natation"?d*1000:d});
+    return `<tr${cls?` class="${cls}"`:""}><td>${lab}</td><td class="n">${a.length}</td><td class="n">${hms(t)}</td><td class="n">${d?d.toFixed(0):""}</td><td class="n">${dp?Math.round(dp).toLocaleString("fr-FR"):""}</td><td class="n">${p}</td></tr>`; };
+  const one = k => { const a = data.filter(s=>s.sport===k); return a.length ? line(`<i class="dot" style="background:${col(k)}"></i>${name(k)}`,a,k) : ""; };
+  const grouped = new Set(GROUPS.flatMap(g=>g[1]));
+  const rows = GROUPS.map(([lab,ks])=>{ const a = data.filter(s=>ks.includes(s.sport)); return a.length ? ks.map(one).join("")+line(lab,a,ks[0],"st") : ""; }).join("")
+    + Object.keys(SPORTS).filter(k=>!grouped.has(k)).map(one).join("");
   $("bySport").innerHTML = `<tr><th>Sport</th><th class="n">Nb</th><th class="n">Temps</th><th class="n">km</th><th class="n">D+</th><th class="n">Moy.</th></tr>${rows}`;
 }
 
@@ -393,7 +396,8 @@ const parseCSV = (txt,sep) => { const rows = []; let r = [], f = "", q = false;
   if(f||r.length){ r.push(f); rows.push(r); } return rows.filter(x=>x.join("").trim()); };
 // Type d'activité Garmin (français ou anglais) → sport de base. L'ordre compte : le premier motif trouvé gagne.
 // Un type sans correspondance (yoga, marche, ski alpin…) devient un nouveau sport qui porte son nom.
-const GARMIN = [[/trail|ultra/,"trail"],[/ski.*(rando|hors|backcountry|alpinisme)/,"ski rando"],[/ski/,null],[/vtt|mountain/,"vtt"],[/cycl|velo|bik|ride/,"velo route"],
+const GARMIN = [[/trail|ultra/,"trail"],[/ski.*(rando|hors|backcountry|alpinisme)/,"ski rando"],[/ski/,null],[/vtt|mountain/,"vtt"],
+  [/(cycl|velo|bik|ride).*(virtu|salle|interieur|indoor)|(virtu|indoor).*(cycl|bik|ride)|home ?trainer/,"home trainer"],[/cycl|velo|bik|ride/,"velo route"],
   [/natation|nat\.|swim/,"natation"],[/muscu|renfo|force|strength|hiit/,"renfo"],[/rando|hik/,"randonnée"],[/course|run|tapis/,"course route"]];
 function fromGarmin(text){
   const first = text.split("\n")[0], sep = first.split(";").length > first.split(",").length ? ";" : ",", rows = parseCSV(text,sep), H = (rows[0]||[]).map(norm);
